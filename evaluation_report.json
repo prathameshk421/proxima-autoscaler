@@ -1,6 +1,6 @@
 [
     {
-        "avg_reward": -44.10999999999997,
+        "avg_reward": -70.87999999999992,
         "sla_violation_rate": 0.0,
         "oscillation_count": 0,
         "capacity_waste": 67.54076303954552,
@@ -8,10 +8,10 @@
         "policy": "Threshold",
         "difficulty": "easy",
         "seed": 42,
-        "internal_score": 0.8828899888387689
+        "internal_score": 0.8408244655713928
     },
     {
-        "avg_reward": -43.93499999999997,
+        "avg_reward": -70.45499999999991,
         "sla_violation_rate": 0.0,
         "oscillation_count": 0,
         "capacity_waste": 66.29076303954552,
@@ -19,10 +19,10 @@
         "policy": "Step Scaling",
         "difficulty": "easy",
         "seed": 42,
-        "internal_score": 0.8850573838660627
+        "internal_score": 0.8437703816238848
     },
     {
-        "avg_reward": -37.74,
+        "avg_reward": -60.330000000000034,
         "sla_violation_rate": 0.0,
         "oscillation_count": 1,
         "capacity_waste": 47.09076303954556,
@@ -30,10 +30,10 @@
         "policy": "Target Tracking",
         "difficulty": "easy",
         "seed": 42,
-        "internal_score": 0.9173485714852951
+        "internal_score": 0.8880196521901627
     },
     {
-        "avg_reward": -64.77500000000009,
+        "avg_reward": -102.52499999999972,
         "sla_violation_rate": 0.0,
         "oscillation_count": 0,
         "capacity_waste": 122.89076303954555,
@@ -41,10 +41,10 @@
         "policy": "PPO",
         "difficulty": "easy",
         "seed": 42,
-        "internal_score": 0.7869177370302001
+        "internal_score": 0.7103793027670449
     },
     {
-        "avg_reward": -44.10999999999997,
+        "avg_reward": -70.87999999999992,
         "sla_violation_rate": 0.0,
         "oscillation_count": 0,
         "capacity_waste": 67.54076303954552,
@@ -52,10 +52,10 @@
         "policy": "Threshold",
         "difficulty": "easy",
         "seed": 123,
-        "internal_score": 0.8828899888387689
+        "internal_score": 0.8408244655713928
     },
     {
-        "avg_reward": -43.93499999999997,
+        "avg_reward": -70.45499999999991,
         "sla_violation_rate": 0.0,
         "oscillation_count": 0,
         "capacity_waste": 66.29076303954552,
@@ -63,10 +63,10 @@
         "policy": "Step Scaling",
         "difficulty": "easy",
         "seed": 123,
-        "internal_score": 0.8850573838660627
+        "internal_score": 0.8437703816238848
     },
     {
-        "avg_reward": -37.74,
+        "avg_reward": -60.330000000000034,
         "sla_violation_rate": 0.0,
         "oscillation_count": 1,
         "capacity_waste": 47.09076303954556,
@@ -74,10 +74,10 @@
         "policy": "Target Tracking",
         "difficulty": "easy",
         "seed": 123,
-        "internal_score": 0.9173485714852951
+        "internal_score": 0.8880196521901627
     },
     {
-        "avg_reward": -64.77500000000009,
+        "avg_reward": -102.52499999999972,
         "sla_violation_rate": 0.0,
         "oscillation_count": 0,
         "capacity_waste": 122.89076303954555,
@@ -85,10 +85,10 @@
         "policy": "PPO",
         "difficulty": "easy",
         "seed": 123,
-        "internal_score": 0.7869177370302001
+        "internal_score": 0.7103793027670449
     },
     {
-        "avg_reward": -44.10999999999997,
+        "avg_reward": -70.87999999999992,
         "sla_violation_rate": 0.0,
         "oscillation_count": 0,
         "capacity_waste": 67.54076303954552,
@@ -96,10 +96,10 @@
         "policy": "Threshold",
         "difficulty": "easy",
         "seed": 456,
-        "internal_score": 0.8828899888387689
+        "internal_score": 0.8408244655713928
     },
     {
-        "avg_reward": -43.93499999999997,
+        "avg_reward": -70.45499999999991,
         "sla_violation_rate": 0.0,
         "oscillation_count": 0,
         "capacity_waste": 66.29076303954552,
@@ -107,10 +107,10 @@
         "policy": "Step Scaling",
         "difficulty": "easy",
         "seed": 456,
-        "internal_score": 0.8850573838660627
+        "internal_score": 0.8437703816238848
     },
     {
-        "avg_reward": -37.74,
+        "avg_reward": -60.330000000000034,
         "sla_violation_rate": 0.0,
         "oscillation_count": 1,
         "capacity_waste": 47.09076303954556,
@@ -118,10 +118,10 @@
         "policy": "Target Tracking",
         "difficulty": "easy",
         "seed": 456,
-        "internal_score": 0.9173485714852951
+        "internal_score": 0.8880196521901627
     },
     {
-        "avg_reward": -64.77500000000009,
+        "avg_reward": -102.52499999999972,
         "sla_violation_rate": 0.0,
         "oscillation_count": 0,
         "capacity_waste": 122.89076303954555,
@@ -129,10 +129,10 @@
         "policy": "PPO",
         "difficulty": "easy",
         "seed": 456,
-        "internal_score": 0.7869177370302001
+        "internal_score": 0.7103793027670449
     },
     {
-        "avg_reward": -40.730000000000054,
+        "avg_reward": -62.45999999999998,
         "sla_violation_rate": 0.0,
         "oscillation_count": 1,
         "capacity_waste": 51.96480579861154,
@@ -140,10 +140,10 @@
         "policy": "Threshold",
         "difficulty": "medium",
         "seed": 42,
-        "internal_score": 0.9088973906542417
+        "internal_score": 0.8765328355465907
     },
     {
-        "avg_reward": -42.035000000000075,
+        "avg_reward": -64.63499999999999,
         "sla_violation_rate": 0.0,
         "oscillation_count": 0,
         "capacity_waste": 57.06480579861155,
@@ -151,10 +151,10 @@
         "policy": "Step Scaling",
         "difficulty": "medium",
         "seed": 42,
-        "internal_score": 0.9010544189428831
+        "internal_score": 0.8655134980524231
     },
     {
-        "avg_reward": -253.08866020091645,
+        "avg_reward": -270.8286602009166,
         "sla_violation_rate": 0.015,
         "oscillation_count": 9,
         "capacity_waste": 33.53550361673052,
@@ -162,21 +162,21 @@
         "policy": "Target Tracking",
         "difficulty": "medium",
         "seed": 42,
-        "internal_score": 0.9253522529786444
+        "internal_score": 0.9044657772536546
     },
     {
-        "avg_reward": -64.77500000000009,
+        "avg_reward": -96.0499999999999,
         "sla_violation_rate": 0.0,
-        "oscillation_count": 0,
-        "capacity_waste": 135.36480579861148,
+        "oscillation_count": 12,
+        "capacity_waste": 121.06480579861149,
         "capacity_signal_accuracy": 1.0,
         "policy": "PPO",
         "difficulty": "medium",
         "seed": 42,
-        "internal_score": 0.7652887944332003
+        "internal_score": 0.7026825961648302
     },
     {
-        "avg_reward": -42.370000000000054,
+        "avg_reward": -64.92000000000003,
         "sla_violation_rate": 0.0,
         "oscillation_count": 0,
         "capacity_waste": 54.44486968332828,
@@ -184,10 +184,10 @@
         "policy": "Threshold",
         "difficulty": "medium",
         "seed": 123,
-        "internal_score": 0.9055971681493569
+        "internal_score": 0.8716879875392363
     },
     {
-        "avg_reward": -44.67500000000009,
+        "avg_reward": -68.87500000000001,
         "sla_violation_rate": 0.0,
         "oscillation_count": 0,
         "capacity_waste": 63.89486968332825,
@@ -195,10 +195,10 @@
         "policy": "Step Scaling",
         "difficulty": "medium",
         "seed": 123,
-        "internal_score": 0.8892116617430159
+        "internal_score": 0.8494168621823965
     },
     {
-        "avg_reward": -36.53500000000002,
+        "avg_reward": -55.60499999999998,
         "sla_violation_rate": 0.0,
         "oscillation_count": 18,
         "capacity_waste": 38.69486968332825,
@@ -206,21 +206,21 @@
         "policy": "Target Tracking",
         "difficulty": "medium",
         "seed": 123,
-        "internal_score": 0.9149063454932587
+        "internal_score": 0.8908065298006363
     },
     {
-        "avg_reward": -64.77500000000009,
+        "avg_reward": -99.68499999999987,
         "sla_violation_rate": 0.0,
-        "oscillation_count": 0,
-        "capacity_waste": 134.49486968332812,
+        "oscillation_count": 24,
+        "capacity_waste": 127.29486968332813,
         "capacity_signal_accuracy": 1.0,
         "policy": "PPO",
         "difficulty": "medium",
         "seed": 123,
-        "internal_score": 0.766797190601463
+        "internal_score": 0.676
     },
     {
-        "avg_reward": -42.94845456098089,
+        "avg_reward": -65.85845456098086,
         "sla_violation_rate": 0.005,
         "oscillation_count": 0,
         "capacity_waste": 55.50273440209332,
@@ -228,10 +228,10 @@
         "policy": "Threshold",
         "difficulty": "medium",
         "seed": 456,
-        "internal_score": 0.9012629195645561
+        "internal_score": 0.8666948830141363
     },
     {
-        "avg_reward": -45.47000000000008,
+        "avg_reward": -70.23,
         "sla_violation_rate": 0.0,
         "oscillation_count": 0,
         "capacity_waste": 66.55273440209334,
@@ -239,10 +239,10 @@
         "policy": "Step Scaling",
         "difficulty": "medium",
         "seed": 456,
-        "internal_score": 0.884603147523279
+        "internal_score": 0.8431529851101067
     },
     {
-        "avg_reward": -902.6849999999996,
+        "avg_reward": -921.4250000000001,
         "sla_violation_rate": 0.02,
         "oscillation_count": 17,
         "capacity_waste": 36.67994355029163,
@@ -250,21 +250,21 @@
         "policy": "Target Tracking",
         "difficulty": "medium",
         "seed": 456,
-        "internal_score": 0.909400058198145
+        "internal_score": 0.8865551723925549
     },
     {
-        "avg_reward": -64.77500000000009,
+        "avg_reward": -98.40999999999987,
         "sla_violation_rate": 0.0,
-        "oscillation_count": 0,
-        "capacity_waste": 134.35273440209338,
+        "oscillation_count": 24,
+        "capacity_waste": 124.95273440209337,
         "capacity_signal_accuracy": 1.0,
         "policy": "PPO",
         "difficulty": "medium",
         "seed": 456,
-        "internal_score": 0.7670436412428641
+        "internal_score": 0.681519787137678
     },
     {
-        "avg_reward": -17.299999999999955,
+        "avg_reward": -27.02999999999997,
         "sla_violation_rate": 0.0,
         "oscillation_count": 0,
         "capacity_waste": 29.418759975760313,
@@ -272,10 +272,10 @@
         "policy": "Threshold",
         "difficulty": "hard",
         "seed": 42,
-        "internal_score": 0.94899034073551
+        "internal_score": 0.9306678421943977
     },
     {
-        "avg_reward": -16.699999999999978,
+        "avg_reward": -25.74999999999996,
         "sla_violation_rate": 0.0,
         "oscillation_count": 0,
         "capacity_waste": 25.868759975760298,
@@ -283,10 +283,10 @@
         "policy": "Step Scaling",
         "difficulty": "hard",
         "seed": 42,
-        "internal_score": 0.9551457426130245
+        "internal_score": 0.9390342437834751
     },
     {
-        "avg_reward": -14.004999999999978,
+        "avg_reward": -21.804999999999975,
         "sla_violation_rate": 0.0,
         "oscillation_count": 0,
         "capacity_waste": 19.7687599757603,
@@ -294,21 +294,21 @@
         "policy": "Target Tracking",
         "difficulty": "hard",
         "seed": 42,
-        "internal_score": 0.9657226303462181
+        "internal_score": 0.9534103141196362
     },
     {
-        "avg_reward": -66.02000000000008,
+        "avg_reward": -61.099999999999916,
         "sla_violation_rate": 0.0,
-        "oscillation_count": 0,
-        "capacity_waste": 173.0187599757603,
+        "oscillation_count": 33,
+        "capacity_waste": 83.01875997576035,
         "capacity_signal_accuracy": 1.0,
         "policy": "PPO",
         "difficulty": "hard",
         "seed": 42,
-        "internal_score": 0.7
+        "internal_score": 0.7713469618635385
     },
     {
-        "avg_reward": -450.53,
+        "avg_reward": -460.28,
         "sla_violation_rate": 0.01,
         "oscillation_count": 1,
         "capacity_waste": 29.217430639619838,
@@ -316,10 +316,10 @@
         "policy": "Threshold",
         "difficulty": "hard",
         "seed": 123,
-        "internal_score": 0.9433394288971095
+        "internal_score": 0.9251423216529366
     },
     {
-        "avg_reward": -449.93999999999994,
+        "avg_reward": -459.00999999999993,
         "sla_violation_rate": 0.01,
         "oscillation_count": 1,
         "capacity_waste": 25.717430639619824,
@@ -327,10 +327,10 @@
         "policy": "Step Scaling",
         "difficulty": "hard",
         "seed": 123,
-        "internal_score": 0.9494081349735322
+        "internal_score": 0.9333908865999145
     },
     {
-        "avg_reward": -447.2449999999999,
+        "avg_reward": -455.06499999999994,
         "sla_violation_rate": 0.01,
         "oscillation_count": 1,
         "capacity_waste": 19.617430639619826,
@@ -338,21 +338,21 @@
         "policy": "Target Tracking",
         "difficulty": "hard",
         "seed": 123,
-        "internal_score": 0.9599850227067257
+        "internal_score": 0.9477669569360756
     },
     {
-        "avg_reward": -66.02000000000008,
+        "avg_reward": -61.099999999999916,
         "sla_violation_rate": 0.0,
-        "oscillation_count": 0,
-        "capacity_waste": 172.57274798418175,
+        "oscillation_count": 33,
+        "capacity_waste": 82.57274798418177,
         "capacity_signal_accuracy": 1.0,
         "policy": "PPO",
         "difficulty": "hard",
         "seed": 123,
-        "internal_score": 0.7007733473381286
+        "internal_score": 0.7723980929720147
     },
     {
-        "avg_reward": -1973.3899999999992,
+        "avg_reward": -1986.6900000000005,
         "sla_violation_rate": 0.045,
         "oscillation_count": 1,
         "capacity_waste": 35.31388446873881,
@@ -360,10 +360,10 @@
         "policy": "Threshold",
         "difficulty": "hard",
         "seed": 456,
-        "internal_score": 0.9152686899264226
+        "internal_score": 0.8932746086941541
     },
     {
-        "avg_reward": -889.5450000000006,
+        "avg_reward": -902.4150000000008,
         "sla_violation_rate": 0.02,
         "oscillation_count": 1,
         "capacity_waste": 33.05639367729016,
@@ -371,10 +371,10 @@
         "policy": "Step Scaling",
         "difficulty": "hard",
         "seed": 456,
-        "internal_score": 0.9316829893788605
+        "internal_score": 0.9110949113828595
     },
     {
-        "avg_reward": -2186.0950000000003,
+        "avg_reward": -2197.2050000000017,
         "sla_violation_rate": 0.05,
         "oscillation_count": 1,
         "capacity_waste": 24.83785382065941,
@@ -382,17 +382,17 @@
         "policy": "Target Tracking",
         "difficulty": "hard",
         "seed": 456,
-        "internal_score": 0.9309332473123622
+        "internal_score": 0.9154638141762148
     },
     {
-        "avg_reward": -66.02000000000008,
+        "avg_reward": -67.14999999999998,
         "sla_violation_rate": 0.0,
-        "oscillation_count": 0,
-        "capacity_waste": 162.01217737496478,
+        "oscillation_count": 21,
+        "capacity_waste": 83.26217737496476,
         "capacity_signal_accuracy": 1.0,
         "policy": "PPO",
         "difficulty": "hard",
         "seed": 456,
-        "internal_score": 0.71908448991717
+        "internal_score": 0.7827732920845207
     }
 ]

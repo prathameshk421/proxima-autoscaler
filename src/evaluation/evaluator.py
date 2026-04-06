@@ -138,8 +138,9 @@ def main():
     print("\nExecuting 36 Episode Evaluations...")
     for diff in difficulties:
         for seed in seeds:
-            env = CloudAutoScalingEnv(difficulty=diff, seed=seed)
             for pol_name, (pol_fn, is_ppo) in policies.items():
+                # Fresh env per policy to prevent state leakage between runs
+                env = CloudAutoScalingEnv(difficulty=diff, seed=seed)
                 
                 metrics = evaluate_episode(env, pol_fn, is_ppo=is_ppo)
                 max_waste = max(max_waste, metrics["capacity_waste"])

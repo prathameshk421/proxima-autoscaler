@@ -31,9 +31,10 @@ def build_ppo(env) -> PPO:
         gamma=0.99,
         gae_lambda=0.95,  # Credit assignment across D_startup delay
         clip_range=0.2,
-        ent_coef=0.01,
+        ent_coef=0.05,
         policy_kwargs=policy_kwargs,
         device="cpu",      # Explicitly use CPU (MPS instability with SB3)
+        tensorboard_log="./logs/tb",
         verbose=1
     )
     return model

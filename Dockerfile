@@ -5,13 +5,14 @@ RUN apt-get update && apt-get install -y gcc git && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Enable pipeline layer cache leveraging by explicitly installing requirements first
+# Copy source and config for install
 COPY pyproject.toml .
-# Install base project
-RUN pip install --no-cache-dir -e .
-
-# Load up actual core logic maps and trained artifacts
 COPY src/ ./src/
+
+# Install project (non-editable; hatchling needs src/ present)
+RUN pip install --no-cache-dir .
+
+# Copy trained artifacts and entrypoint
 COPY checkpoints/ ./checkpoints/
 COPY app.py .
 

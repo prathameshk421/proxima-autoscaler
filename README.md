@@ -7,15 +7,44 @@ app_port: 7860
 ---
 
 # Proxima Auto-Scaler ☁️
-*Developed for the Meta-PyTorch Cloud Hackathon.*
 
-This project showcases a production-ready, highly robust Reinforcement Learning pipeline attempting to dynamically autoscale simulated cloud infrastructure footprints using a custom Multi-Headed Proximal Policy Optimization (PPO) architecture coupled dynamically via SB3 logic arrays. 
+**Reinforcement Learning for Cloud Auto-Scaling** — Meta-PyTorch Hackathon Entry
 
-The simulated backend physically represents a true `M/M/c` Queueing Theory system natively processing robust MMPP variations spanning three difficulty workloads natively ("easy", "medium", "hard"). Additionally, it dynamically parses standard scale-up delays through isolated execution queues (simulating real EC2 provisioning lags), forcing our PPO agent to mathematically map delayed provisioning horizons instead of blindly assuming linear capacity integrations! 
+An RL agent that learns to dynamically scale cloud server capacity using Proximal Policy Optimization (PPO). The environment simulates realistic M/M/c queueing dynamics with multi-phase workloads (sinusoidal, noisy, MMPP bursty) and delayed server boot times, forcing the agent to plan scaling decisions ahead of demand.
 
-### Hugging Face API Endpoints
+## Architecture
 
-Our REST execution service provides isolated, un-batched inference calls directly from the Docker instance. 
-- **`GET /health`**: Tests basic server operation logic mapping and ensures the `ppo_cloud_final` configuration graph loaded into RAM.
-- **`GET /evaluate?difficulty=<diff>&seed=<int>`**: Computes natively up to 200 simulation timestamps across our compiled PPO variants against designated testing variables, returning exact trace vectors alongside calculated normalization benchmarks.
-- **`GET /baselines?difficulty=<diff>&seed=<int>`**: Iterates the identical simulated environments physically across standard rule-based heuristics (`Threshold`, `Target Tracking`, and `Step Scaling`) allowing 1:1 metric correlations against arbitrary workloads.
+| Component | Description |
+|-----------|-------------|
+| **Environment** | Gymnasium-based cloud simulator with Erlang-C latency model, configurable difficulty tiers, and D_startup boot delay |
+| **Agent** | PPO with custom GRU+MLP feature extractor (SB3), MultiDiscrete action space for step scaling, target utilization, and capacity signaling |
+| **Baselines** | Threshold, Step Scaling, and Target Tracking (HPA-style) heuristic policies |
+| **Training** | Curriculum learning across easy → medium → hard difficulties with observation normalization |
+
+## API Endpoints
+
+The FastAPI service exposes three endpoints:
+
+- **`GET /health`** — Returns service status and whether the PPO model loaded successfully
+- **`GET /evaluate?difficulty=<diff>&seed=<int>`** — Runs a full 200-step episode with the trained PPO agent, returning per-step traces and a normalized score
+- **`GET /baselines?difficulty=<diff>&seed=<int>`** — Evaluates all three heuristic baselines on the same workload for direct comparison
+
+## Quick Start
+
+```bash
+# Install
+pip install -e .
+
+# Train (curriculum: easy → medium → hard)
+python -m src.agent.train --seed 42
+
+# Evaluate
+python -m src.evaluation.evaluator
+
+# Run API server
+uvicorn app:app --host 0.0.0.0 --port 7860
+```
+
+## Tech Stack
+
+Python 3.11 · PyTorch · Stable-Baselines3 · Gymnasium · FastAPI · Pydantic v2 · SciPy (Erlang-C)
