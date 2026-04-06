@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field, field_validator
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-D_STARTUP: int = 4  # fixed boot-countdown vector length (tune in config)
+D_STARTUP: int = 3  # fixed boot-countdown vector length (must match env D_startup)
 
 
 # ---------------------------------------------------------------------------
