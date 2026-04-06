@@ -1,25 +1,21 @@
----
-title: Proxima Autoscalar
-emoji: 🌍
-colorFrom: purple
-colorTo: pink
+title: Cloud AutoScaling RL (OpenEnv)
+emoji: ☁️
+colorFrom: blue
+colorTo: green
 sdk: docker
-pinned: false
+app_port: 7860
 ---
 
-# Proxima Autoscaler
+# Proxima Auto-Scaler ☁️
+*Developed for the Meta-PyTorch Cloud Hackathon.*
 
-Proxima Autoscaler is a simulated auto-scaling environment.
+This project showcases a production-ready, highly robust Reinforcement Learning pipeline attempting to dynamically autoscale simulated cloud infrastructure footprints using a custom Multi-Headed Proximal Policy Optimization (PPO) architecture coupled dynamically via SB3 logic arrays. 
 
-## Overview
-This project simulates an auto-scaling system using a reinforcement learning approach (PPO) or manual scaling, wrapped in a FastAPI application.
+The simulated backend physically represents a true `M/M/c` Queueing Theory system natively processing robust MMPP variations spanning three difficulty workloads natively ("easy", "medium", "hard"). Additionally, it dynamically parses standard scale-up delays through isolated execution queues (simulating real EC2 provisioning lags), forcing our PPO agent to mathematically map delayed provisioning horizons instead of blindly assuming linear capacity integrations! 
 
-## Prerequisites
-- Python 3.8+
-- [Add dependencies based on your environment, e.g., requirements.txt]
+### Hugging Face API Endpoints
 
-## Getting Started
-1. Clone the repository.
-2. Setup your virtual environment.
-3. Install dependencies.
-4. Run the components (FastAPI application, PPO training script, etc.).
+Our REST execution service provides isolated, un-batched inference calls directly from the Docker instance. 
+- **`GET /health`**: Tests basic server operation logic mapping and ensures the `ppo_cloud_final` configuration graph loaded into RAM.
+- **`GET /evaluate?difficulty=<diff>&seed=<int>`**: Computes natively up to 200 simulation timestamps across our compiled PPO variants against designated testing variables, returning exact trace vectors alongside calculated normalization benchmarks.
+- **`GET /baselines?difficulty=<diff>&seed=<int>`**: Iterates the identical simulated environments physically across standard rule-based heuristics (`Threshold`, `Target Tracking`, and `Step Scaling`) allowing 1:1 metric correlations against arbitrary workloads.
