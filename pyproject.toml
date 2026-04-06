@@ -1,0 +1,32 @@
+# pyproject.toml
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "proxima-autoscaler"
+version = "0.1.0"
+description = "RL-powered cloud auto-scaling agent (Meta-PyTorch Hackathon)"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+dependencies = [
+    "pydantic>=2.0",
+    "numpy",
+    "scipy",
+    "stable-baselines3",
+    "torch",
+    "gymnasium",
+    "fastapi",
+    "uvicorn",
+    "tensorboard",
+    "matplotlib",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff",
+    "pytest",
+]
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
