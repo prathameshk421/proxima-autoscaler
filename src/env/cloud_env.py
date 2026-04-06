@@ -32,7 +32,7 @@ _TARGET_UTIL_MAP  = [0.4, 0.5, 0.6, 0.7]       # a2: indices 0..3
 _CAP_SIGNAL_MAP   = [0, 1]                       # a3: indices 0..1
 
 # ── Reward constants ──────────────────────────────────────────────────────────
-_W_COST        = 0.3
+_W_COST        = 0.5
 _W_LATENCY     = 0.6
 _W_OSCILLATION = 0.1
 _W_INVALID     = 0.1

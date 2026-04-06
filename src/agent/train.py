@@ -14,6 +14,7 @@ torch.manual_seed(42)
 
 from stable_baselines3.common.callbacks import EvalCallback
 from stable_baselines3.common.monitor import Monitor
+from stable_baselines3.common.vec_env import DummyVecEnv
 
 from src.env.cloud_env import CloudAutoScalingEnv
 from src.env.schemas import Action, Observation
@@ -60,9 +61,9 @@ def main():
     
     # ── Curriculum Phases ───────────────────────────────────────────────────
     curriculum = [
-        ("easy", 50_000),
-        ("medium", 100_000),
-        ("hard", 150_000),
+        ("easy", 100_000),
+        ("medium", 200_000),
+        ("hard", 300_000),
     ]
     
     model = None
@@ -73,17 +74,15 @@ def main():
         print(f"{'='*60}")
         
         # Training Environment
-        env = CloudAutoScalingEnv(difficulty=difficulty, seed=args.seed)
-        env = Monitor(env)
+        train_env = DummyVecEnv([lambda d=difficulty, s=args.seed: Monitor(CloudAutoScalingEnv(difficulty=d, seed=s))])
         
         # Evaluation Environment
-        eval_env = CloudAutoScalingEnv(difficulty=difficulty, seed=123)
-        eval_env = Monitor(eval_env)
+        eval_env = DummyVecEnv([lambda d=difficulty: Monitor(CloudAutoScalingEnv(difficulty=d, seed=123))])
         
         if phase_idx == 0:
-            model = build_ppo(env)
+            model = build_ppo(train_env)
         else:
-            model.set_env(env)
+            model.set_env(train_env)
             
         eval_callback = EvalCallback(
             eval_env,
