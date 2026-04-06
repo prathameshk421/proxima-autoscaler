@@ -1,0 +1,28 @@
+# openenv.yaml
+# OpenEnv specification for Proxima Auto-Scaler
+# Ref: https://github.com/openenv-dev/openenv
+
+name: proxima-autoscaler
+version: "0.1.0"
+description: >
+  RL-powered cloud auto-scaling agent that learns optimal
+  server provisioning policies under dynamic workloads.
+
+environment:
+  module: src.env.cloud_env          # will contain CloudScalingEnv
+  class: CloudScalingEnv
+
+schemas:
+  observation: src.env.schemas.Observation
+  action: src.env.schemas.Action
+  reward: src.env.schemas.Reward
+
+training:
+  algorithm: PPO                     # stable-baselines3
+  total_timesteps: 500_000
+  checkpoint_dir: checkpoints/
+
+deployment:
+  framework: fastapi
+  entrypoint: src.api.app:app
+  port: 7860                         # HF Spaces default
