@@ -11,12 +11,20 @@ app = FastAPI(title="Proxima Auto-Scaler API")
 
 # Load PPO model ONCE at startup to optimize latency
 try:
-    model = PPO.load("checkpoints/ppo_cloud_final", device="cpu")
+    model = PPO.load("checkpoints/ppo_cloud_final.zip", device="cpu")
     model_loaded = True
 except Exception as e:
     print(f"Failed to load PPO model: {e}")
     model = None
     model_loaded = False
+
+@app.get("/")
+def root():
+    return {
+        "name": "Proxima Auto-Scaler API",
+        "status": "ok",
+        "model_loaded": model_loaded
+    }
 
 @app.get("/health")
 def health_check():
@@ -96,7 +104,7 @@ def run_policy_evaluation(env, policy_fn, is_ppo=False):
 def evaluate(difficulty: str = Query("easy"), seed: int = Query(42)):
     """Evaluate trained PPO model dynamically."""
     if not model_loaded:
-        return {"error": "Model failed to load. Check checkpoints/ppo_cloud_final."}
+        return {"error": "Model failed to load. Check checkpoints/ppo_cloud_final.zip."}
         
     env = CloudAutoScalingEnv(difficulty=difficulty, seed=seed)
     res = run_policy_evaluation(env, model.predict, is_ppo=True)
