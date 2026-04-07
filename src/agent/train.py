@@ -3,6 +3,7 @@
 
 import argparse
 import random
+import shutil
 import numpy as np
 import torch
 import os
@@ -12,7 +13,7 @@ random.seed(42)
 np.random.seed(42)
 torch.manual_seed(42)
 
-from stable_baselines3.common.callbacks import EvalCallback
+from stable_baselines3.common.callbacks import EvalCallback, CheckpointCallback
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import DummyVecEnv
 
@@ -60,10 +61,11 @@ def main():
     os.makedirs(args.log_dir, exist_ok=True)
     
     # ── Curriculum Phases ───────────────────────────────────────────────────
+    # Total: 1M steps — 2× investment on hard to close the generalization gap
     curriculum = [
-        ("easy", 100_000),
-        ("medium", 200_000),
-        ("hard", 300_000),
+        ("easy",   150_000),
+        ("medium", 250_000),
+        ("hard",   600_000),
     ]
     
     model = None
@@ -89,19 +91,33 @@ def main():
             best_model_save_path=f"checkpoints/best_{difficulty}/",
             log_path=args.log_dir,
             eval_freq=5000,
-            n_eval_episodes=5,
-            deterministic=True,
+            n_eval_episodes=10,
+            deterministic=False,
             render=False,
+        )
+        
+        # Periodic checkpoint every 50k steps for safety
+        checkpoint_callback = CheckpointCallback(
+            save_freq=50_000,
+            save_path=f"checkpoints/periodic_{difficulty}/",
+            name_prefix="ppo_ckpt",
         )
         
         model.learn(
             total_timesteps=num_timesteps,
-            callback=eval_callback,
+            callback=[eval_callback, checkpoint_callback],
             reset_num_timesteps=False
         )
         
-    print("\nTraining complete. Saving final model...")
-    model.save("checkpoints/ppo_cloud_final")
+    # Deploy the BEST eval checkpoint from hard phase (not the last checkpoint)
+    best_hard_path = "checkpoints/best_hard/best_model.zip"
+    final_path = "checkpoints/ppo_cloud_final.zip"
+    if os.path.exists(best_hard_path):
+        shutil.copy2(best_hard_path, final_path)
+        print(f"\nDeployed best hard checkpoint → {final_path}")
+    else:
+        model.save("checkpoints/ppo_cloud_final")
+        print("\nNo best_hard checkpoint found, saved final model instead.")
     
     # ── Evaluation ──────────────────────────────────────────────────────────
     print("\nRunning baseline comparisons across all difficulties...")

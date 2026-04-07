@@ -15,21 +15,7 @@ from src.baselines.heuristics import (
     target_tracking_policy
 )
 
-def _adapt_obs_for_model(obs_arr: np.ndarray, expected_dim: int) -> np.ndarray:
-    """Adapt observation shape to what the saved PPO policy expects."""
-    if obs_arr.shape[0] == expected_dim:
-        return obs_arr
-    if obs_arr.shape[0] > expected_dim:
-        return obs_arr[:expected_dim].astype(np.float32)
-    pad_value = float(obs_arr[-1]) if obs_arr.shape[0] > 0 else 0.0
-    return np.pad(
-        obs_arr.astype(np.float32),
-        (0, expected_dim - obs_arr.shape[0]),
-        mode="constant",
-        constant_values=pad_value,
-    )
-
-def evaluate_episode(env: CloudAutoScalingEnv, policy_fn: Callable[[Observation], Action], is_ppo: bool = False, expected_obs_dim: int = None) -> Dict[str, float]:
+def evaluate_episode(env: CloudAutoScalingEnv, policy_fn: Callable[[Observation], Action], is_ppo: bool = False) -> Dict[str, float]:
     """Run a single episode and return metrics for the evaluation."""
     obs_arr, _ = env.reset(seed=env._init_seed)
     
@@ -47,8 +33,7 @@ def evaluate_episode(env: CloudAutoScalingEnv, policy_fn: Callable[[Observation]
     while True:
         # PPO requires raw flat numpy obs directly from env state output
         if is_ppo:
-            model_obs = _adapt_obs_for_model(obs_arr, expected_obs_dim) if expected_obs_dim else obs_arr
-            action_arr, _ = policy_fn(model_obs, deterministic=True)
+            action_arr, _ = policy_fn(obs_arr, deterministic=True)
             step_scaling = int(action_arr[0]) - 2
             cap_signal = int(action_arr[2])
         else:
@@ -144,11 +129,11 @@ def main():
         "PPO": (model.predict if model else (lambda o, deterministic: (np.array([2,1,0]), None)), True)
     }
     
-    # Detect model's expected observation dim to handle env/checkpoint shape mismatches
-    ppo_expected_obs_dim = None
+    # Verify model obs dim matches env (should both be 15 after retrain)
     if model is not None:
-        ppo_expected_obs_dim = int(model.observation_space.shape[0])
-        print(f"PPO model expects obs dim: {ppo_expected_obs_dim}")
+        expected_dim = int(model.observation_space.shape[0])
+        print(f"PPO model expects obs dim: {expected_dim}")
+        assert expected_dim == 15, f"Model/env obs dim mismatch: model={expected_dim}, env=15"
     
     difficulties = ["easy", "medium", "hard"]
     seeds = [42, 123, 456]
@@ -163,8 +148,7 @@ def main():
                 # Fresh env per policy to prevent state leakage between runs
                 env = CloudAutoScalingEnv(difficulty=diff, seed=seed)
                 
-                metrics = evaluate_episode(env, pol_fn, is_ppo=is_ppo,
-                                           expected_obs_dim=ppo_expected_obs_dim if is_ppo else None)
+                metrics = evaluate_episode(env, pol_fn, is_ppo=is_ppo)
                 max_waste = max(max_waste, metrics["capacity_waste"])
                 
                 metrics.update({

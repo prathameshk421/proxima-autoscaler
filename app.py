@@ -30,26 +30,6 @@ def root():
 def health_check():
     return {"status": "ok", "model_loaded": model_loaded}
 
-def _adapt_obs_for_model(obs_arr: np.ndarray, expected_dim: int) -> np.ndarray:
-    """
-    Adapt observation shape to what the saved PPO policy expects.
-    This keeps inference resilient when env feature count changes.
-    """
-    if obs_arr.shape[0] == expected_dim:
-        return obs_arr
-    if obs_arr.shape[0] > expected_dim:
-        return obs_arr[:expected_dim].astype(np.float32)
-
-    # If model expects more features than env provides, pad using
-    # the latest known value (fall back to zeros if observation empty).
-    pad_value = float(obs_arr[-1]) if obs_arr.shape[0] > 0 else 0.0
-    padded = np.pad(
-        obs_arr.astype(np.float32),
-        (0, expected_dim - obs_arr.shape[0]),
-        mode="constant",
-        constant_values=pad_value,
-    )
-    return padded
 
 def run_policy_evaluation(env, policy_fn, is_ppo=False):
     """Core evaluation loop matching specifications precisely."""
@@ -57,14 +37,10 @@ def run_policy_evaluation(env, policy_fn, is_ppo=False):
     total_reward = 0.0
     sla_violations = 0
     steps_log = []
-    expected_obs_dim = None
-    if is_ppo and model_loaded and model is not None:
-        expected_obs_dim = int(model.observation_space.shape[0])
     
     for t in range(200):
         if is_ppo:
-            model_obs = _adapt_obs_for_model(obs_arr, expected_obs_dim) if expected_obs_dim else obs_arr
-            action_arr, _ = policy_fn(model_obs, deterministic=True)
+            action_arr, _ = policy_fn(obs_arr, deterministic=True)
             step_scaling = int(action_arr[0]) - 2
             t_utils = [0.4, 0.5, 0.6, 0.7]
             t_util = t_utils[int(action_arr[1])]
