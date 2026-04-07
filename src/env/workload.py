@@ -1,4 +1,3 @@
-# src/env/workload.py
 """Workload generator for the Proxima Auto-Scaler RL environment.
 
 Provides normalised arrival-rate intensity I_norm(t) for three difficulty

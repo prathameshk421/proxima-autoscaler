@@ -1,4 +1,3 @@
-# src/baselines/heuristics.py
 """Rule-based heuristic baselines for Proxima Auto-Scaler."""
 
 import math
@@ -9,9 +8,6 @@ import numpy as np
 from src.env.cloud_env import CloudAutoScalingEnv
 from src.env.schemas import Action, Observation
 
-# ---------------------------------------------------------------------------
-# Policies
-# ---------------------------------------------------------------------------
 
 def threshold_policy(obs: Observation) -> Action:
     """Simple threshold scaling based on average utilization."""
@@ -84,9 +80,6 @@ def target_tracking_policy(obs: Observation, desired_target: float = 0.60) -> Ac
         capacity_signal=capacity_signal
     )
 
-# ---------------------------------------------------------------------------
-# Runner
-# ---------------------------------------------------------------------------
 
 def run_baseline(env: CloudAutoScalingEnv, policy_fn: Callable[[Observation], Action], n_episodes: int = 5) -> Dict[str, float]:
     """Evaluate a heuristic policy on the environment."""
@@ -97,7 +90,6 @@ def run_baseline(env: CloudAutoScalingEnv, policy_fn: Callable[[Observation], Ac
     total_waste = 0.0
     
     for ep in range(n_episodes):
-        # Seed variation for varied evaluation
         env.reset(seed=env._init_seed + ep)
         
         last_dir = 0
@@ -107,11 +99,8 @@ def run_baseline(env: CloudAutoScalingEnv, policy_fn: Callable[[Observation], Ac
             obs = env.state()
             action_obj = policy_fn(obs)
             
-            # Map Pydantic Action onto Gym MultiDiscrete action array
-            # step_scaling values: -2, -1, 0, 1, 2  -> adding 2 aligns with indices [0..4]
             step_idx = int(np.clip(action_obj.step_scaling + 2, 0, 4))
             
-            # target_util values: 0.4, 0.5, 0.6, 0.7 -> mapped to indices [0..3]
             t_util = action_obj.target_utilization
             if t_util <= 0.45: t_idx = 0
             elif t_util <= 0.55: t_idx = 1
@@ -126,7 +115,6 @@ def run_baseline(env: CloudAutoScalingEnv, policy_fn: Callable[[Observation], Ac
             ep_reward += float(reward)
             total_steps += 1
             
-            # Oscillation tracking: direction reversals in step_scaling (+ -> - or - -> +)
             current_scale = action_obj.step_scaling
             if current_scale != 0:
                 current_dir = 1 if current_scale > 0 else -1
@@ -134,7 +122,6 @@ def run_baseline(env: CloudAutoScalingEnv, policy_fn: Callable[[Observation], Ac
                     total_oscillation_count += 1
                 last_dir = current_dir
                 
-            # Physics tracking
             lam = info["lam"]
             current_capacity = info["current_capacity"]
             mu = env.mu

@@ -178,24 +178,17 @@ class CloudAutoScalingEnv(gym.Env):
         self.trend_window.pop(0)
         self.trend_window.append(self._lam)
 
-        # Hard SLA penalty — 10× stronger to eliminate violations on hard difficulty
+        # Reward shaping
         sla_breach = max(0.0, self.latency_p95 - self.T_sla)
         reward = 0.5 - 12.0 * sla_breach
 
-        # Quadratic waste: penalises large over-provision far more than small safety buffers
-        # excess_capacity = unused service rate (req/s beyond current demand)
         excess_capacity = max(0.0, self.current_capacity * self.mu - self._lam)
-        reward -= 0.008 * (excess_capacity ** 2)
+        reward -= 0.008 * (excess_capacity ** 2)          # quadratic waste penalty
+        reward -= 0.04 * abs(step_scaling)                 # action magnitude penalty
+        reward -= 0.15 * max(0.0, util - 1.0)             # congestion penalty
 
-        # Stronger action magnitude penalty — discourages default "+2 servers" reflex
-        reward -= 0.04 * abs(step_scaling)
-
-        # Light congestion penalty (kept for graceful degradation above 100% util)
-        reward -= 0.15 * max(0.0, util - 1.0)
-
-        # False capacity-signal penalty (unchanged)
         if cap_signal == 1 and util < 0.9:
-            reward -= 0.05
+            reward -= 0.05                                 # false capacity-signal penalty
 
         self.current_step += 1
         terminated = self.current_step >= self.max_steps

@@ -1,4 +1,3 @@
-# src/env/queue_model.py
 """M/M/c queueing model for the Proxima Auto-Scaler RL environment.
 
 Provides Erlang-C-based estimates of response latency, server utilisation,

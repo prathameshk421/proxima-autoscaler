@@ -1,4 +1,3 @@
-# src/agent/train.py
 """Curriculum learning training script for Proxima Auto-Scaler RL agent."""
 
 import argparse
@@ -8,7 +7,6 @@ import numpy as np
 import torch
 import os
 
-# Global seeds at the very top (before stable-baselines initializes)
 random.seed(42)
 np.random.seed(42)
 torch.manual_seed(42)
@@ -53,15 +51,12 @@ def main():
     parser.add_argument("--log-dir", type=str, default="./logs", help="Logging directory")
     args = parser.parse_args()
     
-    # Ensure reproducibility with arg seed
     random.seed(args.seed)
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
     
     os.makedirs(args.log_dir, exist_ok=True)
     
-    # ── Curriculum Phases ───────────────────────────────────────────────────
-    # Total: 1M steps — 2× investment on hard to close the generalization gap
     curriculum = [
         ("easy",   150_000),
         ("medium", 250_000),
@@ -75,10 +70,8 @@ def main():
         print(f" Phase {phase_idx + 1}: Training on '{difficulty}' difficulty ({num_timesteps} steps)")
         print(f"{'='*60}")
         
-        # Training Environment
         train_env = DummyVecEnv([lambda d=difficulty, s=args.seed: Monitor(CloudAutoScalingEnv(difficulty=d, seed=s))])
         
-        # Evaluation Environment
         eval_env = DummyVecEnv([lambda d=difficulty: Monitor(CloudAutoScalingEnv(difficulty=d, seed=123))])
         
         if phase_idx == 0:
@@ -96,7 +89,6 @@ def main():
             render=False,
         )
         
-        # Periodic checkpoint every 50k steps for safety
         checkpoint_callback = CheckpointCallback(
             save_freq=50_000,
             save_path=f"checkpoints/periodic_{difficulty}/",
@@ -109,7 +101,6 @@ def main():
             reset_num_timesteps=False
         )
         
-    # Deploy the BEST eval checkpoint from hard phase (not the last checkpoint)
     best_hard_path = "checkpoints/best_hard/best_model.zip"
     final_path = "checkpoints/ppo_cloud_final.zip"
     if os.path.exists(best_hard_path):
@@ -119,14 +110,13 @@ def main():
         model.save("checkpoints/ppo_cloud_final")
         print("\nNo best_hard checkpoint found, saved final model instead.")
     
-    # ── Evaluation ──────────────────────────────────────────────────────────
     print("\nRunning baseline comparisons across all difficulties...")
     
     policies = {
         "Threshold": threshold_policy,
         "Step Scaling": step_scaling_policy,
         "Target Tracking": lambda obs: target_tracking_policy(obs, desired_target=0.60),
-        "PPO (ours)": None  # Will be dynamically built per difficulty
+        "PPO (ours)": None,
     }
     
     difficulties = ["easy", "medium", "hard"]
@@ -144,7 +134,6 @@ def main():
             res = run_baseline(eval_env, policy_to_run, n_episodes=5)
             results[pol_name][diff] = res
 
-    # ── Comparison Table ────────────────────────────────────────────────────
     print(f"\n| {'Policy':<15} | {'Easy R':>8} | {'Med R':>8} | {'Hard R':>8} | {'SLA Viol':>8} | {'Waste':>8} |")
     print(f"|{'-'*17}|{'-'*10}|{'-'*10}|{'-'*10}|{'-'*10}|{'-'*10}|")
     
@@ -153,7 +142,6 @@ def main():
         med_r  = results[pol_name]["medium"]["avg_reward"]
         hard_r = results[pol_name]["hard"]["avg_reward"]
         
-        # Averages across the 3 environments
         avg_sla = sum(results[pol_name][d]["sla_violation_rate"] for d in difficulties) / 3
         avg_waste = sum(results[pol_name][d]["capacity_waste"] for d in difficulties) / 3
         

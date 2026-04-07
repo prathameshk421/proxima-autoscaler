@@ -1,4 +1,3 @@
-# app.py
 from fastapi import FastAPI, Query
 import numpy as np
 import uvicorn
@@ -9,7 +8,6 @@ from src.baselines.heuristics import threshold_policy, step_scaling_policy, targ
 
 app = FastAPI(title="Proxima Auto-Scaler API")
 
-# Load PPO model ONCE at startup to optimize latency
 try:
     model = PPO.load("checkpoints/ppo_cloud_final.zip", device="cpu")
     model_loaded = True
@@ -65,7 +63,6 @@ def run_policy_evaluation(env, policy_fn, is_ppo=False):
                 np.clip(cap_signal, 0, 1)
             ])
             
-        # Log before step
         obs_dict = env.state().model_dump()
         action_dict = {
             "step_scaling": step_scaling,
@@ -89,7 +86,6 @@ def run_policy_evaluation(env, policy_fn, is_ppo=False):
         if terminated or truncated:
             break
             
-    # Calculate required SCORE scalar
     min_possible = -200 * 1.5
     max_possible = 200 * 0.5
     score = float(np.clip((total_reward - min_possible) / (max_possible - min_possible), 0.0, 1.0))
@@ -134,7 +130,6 @@ def baselines(difficulty: str = Query("easy"), seed: int = Query(42)):
     results_map = {}
     for name, pol_fn in zip(pol_names, pols):
         res = run_policy_evaluation(env, pol_fn, is_ppo=False)
-        # Drop redundant step logs for baseline bulk array (usually large output)
         res.pop("steps")
         results_map[name] = res
         

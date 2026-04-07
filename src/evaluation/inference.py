@@ -1,14 +1,11 @@
-# src/evaluation/inference.py
 """Standalone inference module for grading the final PPO agent."""
 
 import argparse
 from typing import Dict, Any
 import numpy as np
 
-# STRICT CONSTRAINT: Only standard imports and SB3 PPO allowed here.
 from stable_baselines3 import PPO
 
-# Environment imports
 from src.env.cloud_env import CloudAutoScalingEnv
 
 def extract_obs_dict(obs_arr: np.ndarray, env: CloudAutoScalingEnv) -> Dict[str, Any]:
@@ -43,39 +40,32 @@ def adapt_obs_for_model(obs_arr: np.ndarray, expected_dim: int) -> np.ndarray:
 def run_inference(difficulty: str, seed: int, model_path: str) -> float:
     """Run precisely one episodic inference trace for OpenEnv grading."""
     
-    # Instantiate the env
     env = CloudAutoScalingEnv(difficulty=difficulty, seed=seed)
     
-    # Load model enforcing strictly CPU evaluation device (SB3 standard)
     model = PPO.load(model_path, device="cpu")
     expected_obs_dim = int(model.observation_space.shape[0])
     
     obs_arr, _ = env.reset(seed=seed)
     total_reward = 0.0
     
-    for t in range(200):  # Hardcoded max_steps 200 based on specs
+    for t in range(200):
         model_obs = adapt_obs_for_model(obs_arr, expected_obs_dim)
         action_arr, _ = model.predict(model_obs, deterministic=True)
         
-        # Log translation 
         obs_dict = extract_obs_dict(obs_arr, env)
         action_dict = extract_action_dict(action_arr)
         
-        # Step
         obs_arr, reward, terminated, truncated, info = env.step(action_arr)
         total_reward += float(reward)
         
-        # Log strictly formatted line exactly as prompt requested
         print(f"[STEP {t}] obs={obs_dict} action={action_dict} reward={reward:.4f}")
         
         if terminated or truncated:
             break
             
-    # Calculate bounds
     min_possible = -200 * 1.5
     max_possible = 200 * 0.5
     
-    # Normalization and clamping
     normalized_score = (total_reward - min_possible) / (max_possible - min_possible)
     normalized_score = float(np.clip(normalized_score, 0.0, 1.0))
     

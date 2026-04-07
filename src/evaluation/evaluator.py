@@ -1,4 +1,3 @@
-# src/evaluation/evaluator.py
 """Comprehensive evaluation script validating multi-baseline metrics."""
 
 import json
@@ -31,7 +30,6 @@ def evaluate_episode(env: CloudAutoScalingEnv, policy_fn: Callable[[Observation]
     fn = 0
     
     while True:
-        # PPO requires raw flat numpy obs directly from env state output
         if is_ppo:
             action_arr, _ = policy_fn(obs_arr, deterministic=True)
             step_scaling = int(action_arr[0]) - 2
@@ -56,15 +54,12 @@ def evaluate_episode(env: CloudAutoScalingEnv, policy_fn: Callable[[Observation]
                 np.clip(cap_signal, 0, 1)
             ])
             
-        # Get physics states needed for metrics exactly BEFORE step mutation
         rho = compute_utilization_direct(env._lam, env.mu, env.current_capacity)
         c_max = env.c_max
         curr_c = env.current_capacity
         lam = env._lam
         mu = env.mu
         
-        # Determine capacity signal accuracy ground truth boundaries
-        # True if we are at edge capacity bounds
         should_signal = (rho >= 0.95 and curr_c == c_max)
         
         if cap_signal == 1:
@@ -72,26 +67,21 @@ def evaluate_episode(env: CloudAutoScalingEnv, policy_fn: Callable[[Observation]
             else: fp += 1
         else:
             if should_signal: fn += 1
-            # else TN, not tracked for accuracy recall formula TP / (TP+FP+FN)
             
-        # Apply the physical step tick
         obs_arr, reward, terminated, truncated, info = env.step(action_arr)
         
         ep_reward += float(reward)
         total_steps += 1
         
-        # Count oscillations (direction shifts)
         if step_scaling != 0:
             current_dir = 1 if step_scaling > 0 else -1
             if last_dir != 0 and current_dir != last_dir:
                 oscillation_count += 1
             last_dir = current_dir
             
-        # Track waste boundary (free extra capacity not servicing requests)
         waste = max(0.0, float(env.current_capacity * env.mu - env._lam))
         total_waste += waste
         
-        # Track SLA (95th percentile latency violations)
         latency = info["latency_p95"]
         if latency > env.T_sla:
             sla_violations += 1
@@ -129,7 +119,6 @@ def main():
         "PPO": (model.predict if model else (lambda o, deterministic: (np.array([2,1,0]), None)), True)
     }
     
-    # Verify model obs dim matches env (should both be 15 after retrain)
     if model is not None:
         expected_dim = int(model.observation_space.shape[0])
         print(f"PPO model expects obs dim: {expected_dim}")
@@ -145,7 +134,6 @@ def main():
     for diff in difficulties:
         for seed in seeds:
             for pol_name, (pol_fn, is_ppo) in policies.items():
-                # Fresh env per policy to prevent state leakage between runs
                 env = CloudAutoScalingEnv(difficulty=diff, seed=seed)
                 
                 metrics = evaluate_episode(env, pol_fn, is_ppo=is_ppo)
@@ -159,8 +147,8 @@ def main():
                 
                 results.append(metrics)
                 
-    # Normalize capacities and generate internal ranking score
-    if max_waste == 0.0: max_waste = 1.0 # Protect norm
+    if max_waste == 0.0:
+        max_waste = 1.0
     
     for r in results:
         cw_norm = r["capacity_waste"] / max_waste
@@ -170,13 +158,11 @@ def main():
         score = (1 - sla_rate)*0.5 + (1 - cw_norm)*0.3 + (1 - osc_rate)*0.2
         r["internal_score"] = score
         
-    # JSON Export constraint
     with open("evaluation_report.json", "w") as f:
         json.dump(results, f, indent=4)
         
     print("\nResults isolated and formatted to evaluation_report.json.")
         
-    # Render Output Print constraint
     print("\n" + "="*85)
     print(f"| {'Difficulty':<10} | {'Policy':<15} | {'Reward':>9} | {'SLA Viol':>8} | {'Waste':>8} | {'Signal Acc':>10} |")
     print("="*85)
@@ -186,7 +172,6 @@ def main():
     
     for diff in difficulties:
         for pol_name in policies.keys():
-            # Filter and average across the 3 seeds
             pol_runs = [r for r in results if r["policy"] == pol_name and r["difficulty"] == diff]
             
             avg_r = sum(x["avg_reward"] for x in pol_runs) / 3
@@ -195,7 +180,6 @@ def main():
             avg_acc = sum(x["capacity_signal_accuracy"] for x in pol_runs) / 3
             avg_intern = sum(x["internal_score"] for x in pol_runs) / 3
             
-            # Record hard stats for final shootout comparison
             if diff == "hard":
                 if pol_name == "Target Tracking":
                     target_tracking_hard_score = avg_intern
@@ -205,7 +189,6 @@ def main():
             print(f"| {diff:<10} | {pol_name:<15} | {avg_r:>9.1f} | {avg_sla:>8.3f} | {avg_waste:>8.1f} | {avg_acc:>10.3f} |")
         print("-" * 85)
         
-    # Ensure final constraint triggers correctly boolean comparison mapping
     ppo_won = ppo_hard_score > target_tracking_hard_score
     diff_text = "YES" if ppo_won else "NO"
     print(f"\nPPO beats Target Tracking on Hard: {diff_text}  (PPO:{ppo_hard_score:.3f} vs Target:{target_tracking_hard_score:.3f})")

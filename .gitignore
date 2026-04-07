@@ -1,7 +1,30 @@
-# .gitignore
-.venv/
+# Python
 __pycache__/
 *.pyc
-logs/
-.DS_Store
+*.pyo
+*.pyd
 *.egg-info/
+dist/
+build/
+.venv/
+
+# IDE / OS
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Tooling
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Project artifacts
+logs/
+checkpoints_backup_*/
+eval_results.txt
+evaluation_report.json
+workload_test.png
