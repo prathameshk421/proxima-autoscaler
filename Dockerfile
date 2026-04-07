@@ -8,6 +8,7 @@ WORKDIR /app
 
 # Copy source and config for install
 COPY pyproject.toml .
+COPY README.md .
 COPY src/ ./src/
 
 # Install project (non-editable; hatchling needs src/ present)
