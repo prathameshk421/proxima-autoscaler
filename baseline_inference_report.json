@@ -1,0 +1,22 @@
+{
+  "agent": "threshold",
+  "model_name": "threshold",
+  "benchmark": "openenv-cloud-autoscaling",
+  "tasks": [
+    "easy"
+  ],
+  "seeds": [
+    42
+  ],
+  "mean_score": 0.56825093563262,
+  "runs": [
+    {
+      "difficulty": "easy",
+      "seed": 42,
+      "steps": 200,
+      "score": 0.56825093563262,
+      "success": false,
+      "avg_reward": 0.7284525840518604
+    }
+  ]
+}

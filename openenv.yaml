@@ -1,0 +1,53 @@
+name: cloud-autoscaling-rl
+version: 0.1.0
+benchmark: openenv-cloud-autoscaling
+description: >
+  Real-world cloud autoscaling reinforcement learning environment with
+  hybrid control actions, startup delays, cooldown constraints,
+  finite queueing, dropped requests, and non-linear overload latency.
+
+tasks:
+  - easy
+  - medium
+  - hard
+
+environment:
+  type: reinforcement_learning
+  deterministic: true
+  api:
+    methods:
+      - reset
+      - step
+      - state
+
+action_schema:
+  summary:
+    - step scaling with discrete deltas -2, -1, 0, +1, +2
+    - target utilization adjustment with allowed targets 0.4, 0.5, 0.6, 0.7
+    - capacity signaling with INSUFFICIENT_CAPACITY
+  model: Action
+
+observation_schema:
+  summary:
+    - server state: current_servers, max_servers, pending_startups, cooldown_remaining
+    - workload state: incoming_request_rate, demand_trend
+    - performance state: utilization, queue_length, estimated_latency, dropped_requests
+    - control target: target_utilization
+    - task context: task_difficulty
+  model: Observation
+
+reward_schema:
+  summary:
+    - normalized final reward in [0,1]
+    - component scores: latency_score, cost_score, stability_score, capacity_signal_score
+    - textual explanation for diagnostics
+  model: Reward
+
+deployment:
+  docker:
+    supported: true
+    service_port: 7860
+  huggingface_spaces:
+    supported: true
+    runtime: docker
+    notes: Commit checkpoints artifacts for reproducible baseline and RL evaluation.

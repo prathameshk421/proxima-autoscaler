@@ -1,0 +1,272 @@
+[
+  {
+    "difficulty": "easy",
+    "seed": 42,
+    "agent": "threshold",
+    "avg_reward": 0.7284525840518596,
+    "sla_violation_rate": 0.01,
+    "oscillation_count": 1.0,
+    "capacity_waste": 0.06949999999999988,
+    "capacity_signal_accuracy": 1.0
+  },
+  {
+    "difficulty": "easy",
+    "seed": 42,
+    "agent": "step",
+    "avg_reward": 0.7126501552778811,
+    "sla_violation_rate": 0.03,
+    "oscillation_count": 2.0,
+    "capacity_waste": 0.07949999999999988,
+    "capacity_signal_accuracy": 1.0
+  },
+  {
+    "difficulty": "easy",
+    "seed": 42,
+    "agent": "target_tracking",
+    "avg_reward": 0.6660078838293851,
+    "sla_violation_rate": 0.0,
+    "oscillation_count": 4.0,
+    "capacity_waste": 0.0015000000000000002,
+    "capacity_signal_accuracy": 0.0
+  },
+  {
+    "difficulty": "easy",
+    "seed": 123,
+    "agent": "threshold",
+    "avg_reward": 0.7283619890556174,
+    "sla_violation_rate": 0.015,
+    "oscillation_count": 1.0,
+    "capacity_waste": 0.07049999999999988,
+    "capacity_signal_accuracy": 1.0
+  },
+  {
+    "difficulty": "easy",
+    "seed": 123,
+    "agent": "step",
+    "avg_reward": 0.7125644653303824,
+    "sla_violation_rate": 0.035,
+    "oscillation_count": 2.0,
+    "capacity_waste": 0.07899999999999988,
+    "capacity_signal_accuracy": 1.0
+  },
+  {
+    "difficulty": "easy",
+    "seed": 123,
+    "agent": "target_tracking",
+    "avg_reward": 0.6644811065673143,
+    "sla_violation_rate": 0.0,
+    "oscillation_count": 4.0,
+    "capacity_waste": 0.0005,
+    "capacity_signal_accuracy": 0.0
+  },
+  {
+    "difficulty": "easy",
+    "seed": 456,
+    "agent": "threshold",
+    "avg_reward": 0.7284719743024239,
+    "sla_violation_rate": 0.01,
+    "oscillation_count": 1.0,
+    "capacity_waste": 0.0679999999999999,
+    "capacity_signal_accuracy": 1.0
+  },
+  {
+    "difficulty": "easy",
+    "seed": 456,
+    "agent": "step",
+    "avg_reward": 0.7125216147211308,
+    "sla_violation_rate": 0.03,
+    "oscillation_count": 2.0,
+    "capacity_waste": 0.07849999999999988,
+    "capacity_signal_accuracy": 1.0
+  },
+  {
+    "difficulty": "easy",
+    "seed": 456,
+    "agent": "target_tracking",
+    "avg_reward": 0.6639142610176083,
+    "sla_violation_rate": 0.0,
+    "oscillation_count": 6.0,
+    "capacity_waste": 0.0005,
+    "capacity_signal_accuracy": 0.0
+  },
+  {
+    "difficulty": "medium",
+    "seed": 42,
+    "agent": "threshold",
+    "avg_reward": 0.6966327720513078,
+    "sla_violation_rate": 0.04,
+    "oscillation_count": 1.0,
+    "capacity_waste": 0.12150000000000005,
+    "capacity_signal_accuracy": 1.0
+  },
+  {
+    "difficulty": "medium",
+    "seed": 42,
+    "agent": "step",
+    "avg_reward": 0.7135984390820674,
+    "sla_violation_rate": 0.035,
+    "oscillation_count": 6.0,
+    "capacity_waste": 0.05899999999999994,
+    "capacity_signal_accuracy": 0.0
+  },
+  {
+    "difficulty": "medium",
+    "seed": 42,
+    "agent": "target_tracking",
+    "avg_reward": 0.6320581044425129,
+    "sla_violation_rate": 0.0,
+    "oscillation_count": 10.0,
+    "capacity_waste": 0.008500000000000002,
+    "capacity_signal_accuracy": 0.0
+  },
+  {
+    "difficulty": "medium",
+    "seed": 123,
+    "agent": "threshold",
+    "avg_reward": 0.6992979989809177,
+    "sla_violation_rate": 0.04,
+    "oscillation_count": 4.0,
+    "capacity_waste": 0.1045,
+    "capacity_signal_accuracy": 1.0
+  },
+  {
+    "difficulty": "medium",
+    "seed": 123,
+    "agent": "step",
+    "avg_reward": 0.7092048716161022,
+    "sla_violation_rate": 0.04,
+    "oscillation_count": 7.0,
+    "capacity_waste": 0.058999999999999976,
+    "capacity_signal_accuracy": 0.0
+  },
+  {
+    "difficulty": "medium",
+    "seed": 123,
+    "agent": "target_tracking",
+    "avg_reward": 0.626550891634897,
+    "sla_violation_rate": 0.0,
+    "oscillation_count": 10.0,
+    "capacity_waste": 0.010500000000000002,
+    "capacity_signal_accuracy": 0.0
+  },
+  {
+    "difficulty": "medium",
+    "seed": 456,
+    "agent": "threshold",
+    "avg_reward": 0.7001740133834076,
+    "sla_violation_rate": 0.04,
+    "oscillation_count": 3.0,
+    "capacity_waste": 0.10599999999999996,
+    "capacity_signal_accuracy": 1.0
+  },
+  {
+    "difficulty": "medium",
+    "seed": 456,
+    "agent": "step",
+    "avg_reward": 0.7170785696964199,
+    "sla_violation_rate": 0.035,
+    "oscillation_count": 6.0,
+    "capacity_waste": 0.04499999999999997,
+    "capacity_signal_accuracy": 1.0
+  },
+  {
+    "difficulty": "medium",
+    "seed": 456,
+    "agent": "target_tracking",
+    "avg_reward": 0.6222419255477517,
+    "sla_violation_rate": 0.0,
+    "oscillation_count": 20.0,
+    "capacity_waste": 0.008000000000000002,
+    "capacity_signal_accuracy": 0.0
+  },
+  {
+    "difficulty": "hard",
+    "seed": 42,
+    "agent": "threshold",
+    "avg_reward": 0.6812301074209836,
+    "sla_violation_rate": 0.07,
+    "oscillation_count": 4.0,
+    "capacity_waste": 0.08699999999999995,
+    "capacity_signal_accuracy": 0.0
+  },
+  {
+    "difficulty": "hard",
+    "seed": 42,
+    "agent": "step",
+    "avg_reward": 0.6914593681609753,
+    "sla_violation_rate": 0.06,
+    "oscillation_count": 8.0,
+    "capacity_waste": 0.05199999999999998,
+    "capacity_signal_accuracy": 0.0
+  },
+  {
+    "difficulty": "hard",
+    "seed": 42,
+    "agent": "target_tracking",
+    "avg_reward": 0.584224582410303,
+    "sla_violation_rate": 0.035,
+    "oscillation_count": 24.0,
+    "capacity_waste": 0.014500000000000004,
+    "capacity_signal_accuracy": 0.010416666666666666
+  },
+  {
+    "difficulty": "hard",
+    "seed": 123,
+    "agent": "threshold",
+    "avg_reward": 0.6735725861355103,
+    "sla_violation_rate": 0.06,
+    "oscillation_count": 5.0,
+    "capacity_waste": 0.08899999999999997,
+    "capacity_signal_accuracy": 0.0
+  },
+  {
+    "difficulty": "hard",
+    "seed": 123,
+    "agent": "step",
+    "avg_reward": 0.6857637841639689,
+    "sla_violation_rate": 0.055,
+    "oscillation_count": 10.0,
+    "capacity_waste": 0.054499999999999965,
+    "capacity_signal_accuracy": 0.0
+  },
+  {
+    "difficulty": "hard",
+    "seed": 123,
+    "agent": "target_tracking",
+    "avg_reward": 0.5883946203557252,
+    "sla_violation_rate": 0.045,
+    "oscillation_count": 14.0,
+    "capacity_waste": 0.011000000000000003,
+    "capacity_signal_accuracy": 0.041237113402061855
+  },
+  {
+    "difficulty": "hard",
+    "seed": 456,
+    "agent": "threshold",
+    "avg_reward": 0.6797360147816933,
+    "sla_violation_rate": 0.08,
+    "oscillation_count": 8.0,
+    "capacity_waste": 0.07349999999999997,
+    "capacity_signal_accuracy": 0.0
+  },
+  {
+    "difficulty": "hard",
+    "seed": 456,
+    "agent": "step",
+    "avg_reward": 0.6915099857407637,
+    "sla_violation_rate": 0.07,
+    "oscillation_count": 12.0,
+    "capacity_waste": 0.049499999999999975,
+    "capacity_signal_accuracy": 0.125
+  },
+  {
+    "difficulty": "hard",
+    "seed": 456,
+    "agent": "target_tracking",
+    "avg_reward": 0.5971508234861911,
+    "sla_violation_rate": 0.035,
+    "oscillation_count": 18.0,
+    "capacity_waste": 0.0175,
+    "capacity_signal_accuracy": 0.0449438202247191
+  }
+]
