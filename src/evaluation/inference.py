@@ -25,6 +25,21 @@ def extract_action_dict(action_arr: np.ndarray) -> Dict[str, Any]:
         "capacity_signal": int(action_arr[2])
     }
 
+def adapt_obs_for_model(obs_arr: np.ndarray, expected_dim: int) -> np.ndarray:
+    """Align env observation shape with the loaded PPO policy input shape."""
+    if obs_arr.shape[0] == expected_dim:
+        return obs_arr
+    if obs_arr.shape[0] > expected_dim:
+        return obs_arr[:expected_dim].astype(np.float32)
+
+    pad_value = float(obs_arr[-1]) if obs_arr.shape[0] > 0 else 0.0
+    return np.pad(
+        obs_arr.astype(np.float32),
+        (0, expected_dim - obs_arr.shape[0]),
+        mode="constant",
+        constant_values=pad_value,
+    )
+
 def run_inference(difficulty: str, seed: int, model_path: str) -> float:
     """Run precisely one episodic inference trace for OpenEnv grading."""
     
@@ -33,12 +48,14 @@ def run_inference(difficulty: str, seed: int, model_path: str) -> float:
     
     # Load model enforcing strictly CPU evaluation device (SB3 standard)
     model = PPO.load(model_path, device="cpu")
+    expected_obs_dim = int(model.observation_space.shape[0])
     
     obs_arr, _ = env.reset(seed=seed)
     total_reward = 0.0
     
     for t in range(200):  # Hardcoded max_steps 200 based on specs
-        action_arr, _ = model.predict(obs_arr, deterministic=True)
+        model_obs = adapt_obs_for_model(obs_arr, expected_obs_dim)
+        action_arr, _ = model.predict(model_obs, deterministic=True)
         
         # Log translation 
         obs_dict = extract_obs_dict(obs_arr, env)
