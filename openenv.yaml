@@ -8,20 +8,40 @@ description: >
   server provisioning policies under dynamic workloads.
 
 environment:
-  module: src.env.cloud_env          # will contain CloudScalingEnv
-  class: CloudScalingEnv
+  module: src.env.cloud_env
+  class: CloudAutoScalingEnv
 
 schemas:
   observation: src.env.schemas.Observation
   action: src.env.schemas.Action
   reward: src.env.schemas.Reward
 
+tasks:
+  easy:
+    description: >
+      Predictable sinusoidal workload with low variance and
+      single-step server boot delay.
+    difficulty: easy
+    grader: deterministic
+  medium:
+    description: >
+      Fluctuating workload with moderate noise, MMPP burst
+      patterns, and two-step boot delay.
+    difficulty: medium
+    grader: deterministic
+  hard:
+    description: >
+      Highly unpredictable demand with aggressive spikes, high
+      noise variance, and three-step boot delay.
+    difficulty: hard
+    grader: deterministic
+
 training:
-  algorithm: PPO                     # stable-baselines3
-  total_timesteps: 500_000
+  algorithm: PPO
+  total_timesteps: 1_000_000
   checkpoint_dir: checkpoints/
 
 deployment:
   framework: fastapi
-  entrypoint: src.api.app:app
-  port: 7860                         # HF Spaces default
+  entrypoint: app:app
+  port: 7860

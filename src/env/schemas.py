@@ -26,3 +26,15 @@ class Action(BaseModel):
     step_scaling: int = Field(..., ge=-2, le=2)
     target_utilization: float = Field(..., ge=0.4, le=0.7)
     capacity_signal: int = Field(..., ge=0, le=1)
+
+
+class Reward(BaseModel):
+    """Structured reward signal for OpenEnv spec compliance."""
+
+    value: float = Field(..., description="Raw reward signal for the current step")
+    sla_penalty: float = Field(0.0, description="SLA breach cost component")
+    waste_penalty: float = Field(0.0, description="Over-provisioning cost component")
+    score: float = Field(
+        ..., ge=0.0, le=1.0,
+        description="Normalized task score in [0.0, 1.0]"
+    )
