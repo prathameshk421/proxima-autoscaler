@@ -142,7 +142,9 @@ def run_baseline(env: CloudAutoScalingEnv, policy_fn: Callable[[Observation], Ac
         "avg_reward": total_reward / max(1, n_episodes),
         "sla_violation_rate": float(sla_violations) / max(1, total_steps),
         "oscillation_count": int(total_oscillation_count / max(1, n_episodes)),
-        "capacity_waste": total_waste / max(1, total_steps)
+        "capacity_waste": total_waste / max(1, total_steps),
+        "steps": float(total_steps) / max(1, n_episodes),
+        "capacity_signal_accuracy": 0.0
     }
 
 if __name__ == "__main__":
