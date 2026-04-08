@@ -1,0 +1,114 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{booktabs}
+\usepackage{siunitx}
+\usepackage{array}
+\usepackage{longtable}
+
+\sisetup{
+  round-mode = places,
+  round-precision = 4,
+  detect-weight = true,
+  detect-inline-weight = math
+}
+
+\title{Proxima Autoscaler: Experimental Results and Comparison Sheet (Metrics Fix Applied)}
+\author{Project: openenv-cloud-autoscaling}
+\date{Generated from repository reports (2026-04-08)}
+
+\begin{document}
+\maketitle
+
+\section{Scope}
+This report summarizes the deterministic benchmark outputs in the repository and provides a side-by-side table to compare against a peer implementation. 
+
+\textbf{Important Correction:} Previous reports utilized an arbitrary 0.0 to 1.0 scoring formula that contained a mathematical bug penalizing heuristics exponentially based on a missing `steps` variable. This updated report utilizes raw, objective metrics: \textbf{Average Total Reward} and \textbf{SLA Violation Rate}.
+
+Primary sources:
+\begin{itemize}
+  \item evaluation\_report.json (mean across seeds)
+  \item src/baselines/heuristics.py (Math bug patched)
+\end{itemize}
+
+\section{Training Configuration}
+\begin{table}[h!]
+\centering
+\begin{tabular}{lrr}
+\toprule
+Phase & Timesteps & Checkpoint \\
+\midrule
+easy   &  50,000 & ppo\_easy.zip \\
+medium & 100,000 & ppo\_medium.zip \\
+hard   & 150,000 & ppo\_hard.zip \\
+\midrule
+Total  & 300,000 & ppo\_cloud\_final.zip \\
+\bottomrule
+\end{tabular}
+\caption{Curriculum training schedule used by PPO.}
+\end{table}
+
+\begin{table}[h!]
+\centering
+\begin{tabular}{ll}
+\toprule
+Attribute & Value \\
+\midrule
+Compute device & CPU (explicitly configured in PPO creation/loading) \\
+Evaluation episode length & 200 steps \\
+Evaluation seeds & 10 Seeds (increased from 3 for robustness) \\
+\bottomrule
+\end{tabular}
+\caption{Execution details relevant for fair comparison.}
+\end{table}
+
+\section{Objective Benchmark Scores (Average Reward)}
+\begin{table}[h!]
+\centering
+\begin{tabular}{lSSSSS}
+\toprule
+Difficulty & {Threshold} & {Step} & {Target Tracking} & {A2C (New)} & {PPO} \\
+\midrule
+easy   & -197.2 & -173.7 & -170.6 & 24.2 & 13.3 \\
+medium & -438.9 & -357.8 & -317.1 & 35.6 & 43.3 \\
+hard   & -627.3 & -543.2 & -473.5 & 31.2 & 47.2 \\
+\bottomrule
+\end{tabular}
+\caption{Mean Average Reward by difficulty. Higher is better.}
+\end{table}
+
+\section{PPO Quality Metrics by Difficulty (Clean Data)}
+\begin{table}[h!]
+\centering
+\begin{tabular}{lSSSSS}
+\toprule
+Difficulty & {Avg Reward} & {SLA Viol (\%)} & {Capacity Waste} & {Lat p95} \\
+\midrule
+easy   & +13.3 & 0.5\% & 5.3 & 1.27 \\
+medium & +43.3 & 1.1\% & 3.4 & 1.22 \\
+hard   & +47.2 & 2.3\% & 2.1 & 1.71 \\
+\bottomrule
+\end{tabular}
+\caption{PPO summary metrics (means across 10 evaluation seeds). PPO effectively balances SLA and Capacity Waste.}
+\end{table}
+
+\section{Friend Comparison: Why Their Numbers Looked Different}
+The friend's previous report utilized the buggy 0.0-1.0 scoring formula. The missing `steps` variable completely zeroed out baseline scores natively, providing the illusion that PPO was magically and astronomically better than heuristic scaling. 
+
+When evaluated objectively using strict Reward economics (SLA penalty + Waste Cost), your PPO model still decisively outperforms all heuristic baselines, demonstrating significant value without relying on a bug in the evaluator.
+
+\begin{table}[h!]
+\centering
+\begin{tabular}{lSc}
+\toprule
+Difficulty & {Our PPO Reward} & {Our Best Baseline Reward} \\
+\midrule
+easy   & +13.3 & -170.6 (Target Tracking) \\
+medium & +43.3 & -317.1 (Target Tracking) \\
+hard   & +47.2 & -473.5 (Target Tracking) \\
+\bottomrule
+\end{tabular}
+\caption{PPO mathematically crushes baselines on the raw Reward function due to preventing over-provisioning waste.}
+\end{table}
+
+\end{document}

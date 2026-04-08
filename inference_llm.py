@@ -107,12 +107,12 @@ def _action_to_array(action: Action) -> np.ndarray:
 
 
 def _normalize_score(total_reward: float) -> float:
-    """Normalize cumulative reward to [0.0, 1.0] per the grader spec."""
+    """Normalize cumulative reward to (0, 1) — strictly excludes 0.0 and 1.0."""
     min_possible = -200 * 1.5
     max_possible = 200 * 0.5
     return float(np.clip(
         (total_reward - min_possible) / (max_possible - min_possible),
-        0.0, 1.0,
+        0.001, 0.999,
     ))
 
 

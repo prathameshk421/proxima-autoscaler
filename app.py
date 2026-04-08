@@ -35,11 +35,12 @@ _sessions: Dict[str, CloudAutoScalingEnv] = {}
 # ── Helper: normalise cumulative reward → [0, 1] ─────────────────────────
 
 def _normalize_score(total_reward: float, n_steps: int = 200) -> float:
+    """Normalize cumulative reward to (0, 1) — strictly excludes 0.0 and 1.0."""
     min_possible = -n_steps * 1.5
     max_possible = n_steps * 0.5
     return float(np.clip(
         (total_reward - min_possible) / (max_possible - min_possible),
-        0.0, 1.0,
+        0.001, 0.999,
     ))
 
 
