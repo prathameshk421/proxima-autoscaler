@@ -20,8 +20,12 @@ from openai import OpenAI
 
 from src.env.cloud_env import CloudAutoScalingEnv
 from src.env.schemas import Action, Observation, Reward
+from dotenv import load_dotenv
+
+load_dotenv()
 
 API_BASE_URL = os.getenv("API_BASE_URL") or "https://router.huggingface.co/v1"
+
 API_KEY = os.getenv("HF_TOKEN") or os.getenv("API_KEY") or os.getenv("OPENAI_API_KEY") or ""
 MODEL_NAME = os.getenv("MODEL_NAME") or "Qwen/Qwen2.5-72B-Instruct"
 MAX_STEPS = 200

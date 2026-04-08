@@ -28,10 +28,11 @@ class CloudAutoScalingEnv(gym.Env):
         self._configure_difficulty(difficulty)
 
         self.action_space = gym.spaces.MultiDiscrete([5, 4, 2])
+        # 7 scalar + 4×8 trend channels = 39 dims
         self.observation_space = gym.spaces.Box(
             low=-1e6,
             high=1e6,
-            shape=(15,),
+            shape=(39,),
             dtype=np.float32,
         )
 
@@ -43,6 +44,11 @@ class CloudAutoScalingEnv(gym.Env):
         self._lam = float(self.lam_base)
         self.latency_p95 = 0.0
         self.trend_window = [self._lam] * 8
+        init_util = self._utilization(self._lam, self.current_capacity)
+        init_lat = self._estimate_latency(self._lam, self.current_capacity, 0.0)
+        self.util_trend = [init_util] * 8
+        self.latency_trend = [init_lat] * 8
+        self.queue_trend = [0.0] * 8
 
     def _configure_difficulty(self, difficulty: str) -> None:
         if difficulty == "easy":
@@ -84,6 +90,10 @@ class CloudAutoScalingEnv(gym.Env):
         self._lam = float(self._demand_profile(self.current_step))
         self.latency_p95 = self._estimate_latency(self._lam, self.current_capacity, self.queue_length)
         self.trend_window = [self._lam] * 8
+        init_util = self._utilization(self._lam, self.current_capacity)
+        self.util_trend = [init_util] * 8
+        self.latency_trend = [self.latency_p95] * 8
+        self.queue_trend = [0.0] * 8
 
         return self._build_obs(), {}
 
@@ -99,10 +109,21 @@ class CloudAutoScalingEnv(gym.Env):
             service_rate=float(self.mu),
             p95_latency=float(self.latency_p95),
             trend=[float(x) for x in self.trend_window],
+            util_trend=[float(x) for x in self.util_trend],
+            latency_trend=[float(x) for x in self.latency_trend],
+            queue_trend=[float(x) for x in self.queue_trend],
         )
 
     def _build_obs(self) -> np.ndarray:
         total_booting = int(sum(servers for servers, _ in self._boot_pipeline))
+        # Normalize trends for training stability
+        lam_scale = max(1.0, self.lam_base + self.lam_amp)
+        latency_scale = max(1.0, self.T_sla * 2.0)
+        queue_scale = max(1.0, self.c_max * self.mu)
+        norm_demand  = [x / lam_scale for x in self.trend_window]
+        norm_util    = self.util_trend  # already in [0, 1]
+        norm_latency = [x / latency_scale for x in self.latency_trend]
+        norm_queue   = [x / queue_scale for x in self.queue_trend]
         obs = np.array(
             [
                 float(self.current_capacity),
@@ -113,7 +134,10 @@ class CloudAutoScalingEnv(gym.Env):
                 float(self._lam),
                 float(self.mu),
             ]
-            + self.trend_window,
+            + norm_demand
+            + norm_util
+            + norm_latency
+            + norm_queue,
             dtype=np.float32,
         )
         return obs
@@ -177,6 +201,12 @@ class CloudAutoScalingEnv(gym.Env):
 
         self.trend_window.pop(0)
         self.trend_window.append(self._lam)
+        self.util_trend.pop(0)
+        self.util_trend.append(util)
+        self.latency_trend.pop(0)
+        self.latency_trend.append(self.latency_p95)
+        self.queue_trend.pop(0)
+        self.queue_trend.append(self.queue_length)
 
         # Reward shaping
         sla_breach = max(0.0, self.latency_p95 - self.T_sla)

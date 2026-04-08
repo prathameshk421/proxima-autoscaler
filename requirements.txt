@@ -1,0 +1,13 @@
+pydantic>=2.0
+numpy
+scipy
+stable-baselines3
+torch
+gymnasium
+fastapi
+uvicorn
+tensorboard
+matplotlib
+openai
+python-dotenv
+

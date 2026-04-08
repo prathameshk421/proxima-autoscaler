@@ -21,6 +21,7 @@ dependencies = [
     "tensorboard",
     "matplotlib",
     "openai",
+    "python-dotenv",
 ]
 
 [project.optional-dependencies]

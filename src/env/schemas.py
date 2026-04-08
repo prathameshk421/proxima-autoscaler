@@ -18,6 +18,9 @@ class Observation(BaseModel):
     service_rate: float = Field(..., gt=0.0)
     p95_latency: float = Field(..., ge=0.0)
     trend: List[float] = Field(default_factory=list)
+    util_trend: List[float] = Field(default_factory=list)
+    latency_trend: List[float] = Field(default_factory=list)
+    queue_trend: List[float] = Field(default_factory=list)
 
 
 class Action(BaseModel):
