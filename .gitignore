@@ -21,9 +21,11 @@ build/
 .mypy_cache/
 .coverage
 htmlcov/
+uv.lock
 
 # Project artifacts
 logs/
+reports/
 checkpoints_backup_*/
 eval_results.txt
 evaluation_report.json
@@ -31,4 +33,4 @@ workload_test.png
 
 # Secrets
 .env
-.env.*
+!.env.example

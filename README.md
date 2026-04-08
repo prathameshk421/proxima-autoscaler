@@ -177,7 +177,7 @@ python -m src.evaluation.evaluator
 # Run LLM inference (set env vars first)
 export HF_TOKEN=<your_token>
 export MODEL_NAME=Qwen/Qwen2.5-72B-Instruct
-python inference_llm.py
+python inference.py
 
 # Run API server
 uvicorn app:app --host 0.0.0.0 --port 7860
@@ -190,7 +190,7 @@ uvicorn app:app --host 0.0.0.0 --port 7860
 ```
 proxima-autoscaler/
 ├── app.py                    # FastAPI application (OpenEnv endpoints)
-├── inference_llm.py          # LLM baseline inference script
+├── inference.py              # LLM baseline inference script
 ├── openenv.yaml              # OpenEnv specification
 ├── Dockerfile                # Container definition
 ├── pyproject.toml            # Dependencies

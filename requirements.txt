@@ -6,8 +6,6 @@ torch
 gymnasium
 fastapi
 uvicorn
-tensorboard
-matplotlib
 openai
 python-dotenv
 

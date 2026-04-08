@@ -31,3 +31,6 @@ eval_results.txt
 evaluation_report.json
 workload_test.png
 problem_statement_files/
+reports/
+uv.lock
+.env
