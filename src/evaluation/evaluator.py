@@ -30,9 +30,12 @@ def evaluate_episode(
     env: CloudAutoScalingEnv,
     policy_fn,
     is_rl: bool = False,
+    needs_discrete_wrapper: bool = False,
+    seed: int = 42,
 ) -> Dict[str, float]:
     """Run a single episode and collect detailed metrics."""
-    obs_arr, _ = env.reset(seed=env._init_seed)
+    base = env.unwrapped  # access base env attributes through wrappers
+    obs_arr, _ = env.reset(seed=seed)
 
     ep_reward = 0.0
     sla_violations = 0
@@ -46,11 +49,23 @@ def evaluate_episode(
 
     while True:
         if is_rl:
-            action_arr, _ = policy_fn(obs_arr, deterministic=True)
-            step_scaling = int(action_arr[0]) - 2
-            cap_signal = int(action_arr[2])
+            action_pred, _ = policy_fn(obs_arr, deterministic=True)
+            if needs_discrete_wrapper:
+                flat = int(np.asarray(action_pred).reshape(-1)[0])
+                action_to_env = flat
+
+                a2 = flat % 2
+                a1 = (flat // 2) % 4
+                a0 = flat // 8
+                step_scaling = a0 - 2
+                cap_signal = a2
+            else:
+                action_arr = np.asarray(action_pred).reshape(-1)
+                step_scaling = int(action_arr[0]) - 2
+                cap_signal = int(action_arr[2])
+                action_to_env = action_arr
         else:
-            obs_pyd = env.state()
+            obs_pyd = base.state()
             action_obj = policy_fn(obs_pyd)
 
             step_scaling = action_obj.step_scaling
@@ -72,9 +87,10 @@ def evaluate_episode(
                 t_idx,
                 np.clip(cap_signal, 0, 1),
             ])
+            action_to_env = action_arr
 
-        rho = env._lam / (env.current_capacity * env.mu) if env.current_capacity > 0 else 1.0
-        should_signal = rho >= 0.95 and env.current_capacity == env.c_max
+        rho = base._lam / (base.current_capacity * base.mu) if base.current_capacity > 0 else 1.0
+        should_signal = rho >= 0.95 and base.current_capacity == base.c_max
 
         if cap_signal == 1:
             if should_signal:
@@ -84,7 +100,7 @@ def evaluate_episode(
         elif should_signal:
             fn += 1
 
-        obs_arr, reward, terminated, truncated, info = env.step(action_arr)
+        obs_arr, reward, terminated, truncated, info = env.step(action_to_env)
 
         ep_reward += float(reward)
         total_steps += 1
@@ -96,10 +112,10 @@ def evaluate_episode(
                 oscillation_count += 1
             last_dir = current_dir
 
-        waste = max(0.0, float(env.current_capacity * env.mu - env._lam))
+        waste = max(0.0, float(base.current_capacity * base.mu - base._lam))
         total_waste += waste
 
-        if info["latency_p95"] > env.T_sla:
+        if info["latency_p95"] > base.T_sla:
             sla_violations += 1
 
         if terminated or truncated:
@@ -134,10 +150,18 @@ def evaluate_policy_multi_seed(
     metrics_list = []
 
     for seed in seeds:
-        env = CloudAutoScalingEnv(difficulty=difficulty, seed=seed)
+        base_env = CloudAutoScalingEnv(difficulty=difficulty, seed=seed)
         if needs_discrete_wrapper:
-            env = DiscreteActionWrapper(env)
-        m = evaluate_episode(env, policy_fn, is_rl=is_rl)
+            env = DiscreteActionWrapper(base_env)
+        else:
+            env = base_env
+        m = evaluate_episode(
+            env,
+            policy_fn,
+            is_rl=is_rl,
+            needs_discrete_wrapper=needs_discrete_wrapper,
+            seed=seed,
+        )
         metrics_list.append(m)
 
     result = {}

@@ -1,0 +1,11 @@
+
+========================================
+  OpenEnv Submission Validator
+========================================
+[13:59:22] Repo:     /Volumes/SSD/Projects/Meta_Hackathon/proxima-autoscaler
+[13:59:22] Ping URL: http://127.0.0.1:7860
+
+[13:59:22] Step 1/3: Pinging HF Space (http://127.0.0.1:7860/reset) ...
+[13:59:22] PASSED -- HF Space is live and responds to /reset
+[13:59:22] Step 2/3: Running docker build ...
+[13:59:22]   Found Dockerfile in /Volumes/SSD/Projects/Meta_Hackathon/proxima-autoscaler

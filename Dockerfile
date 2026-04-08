@@ -12,7 +12,7 @@ COPY src/ ./src/
 RUN pip install --no-cache-dir .
 
 COPY app.py .
-COPY inference_llm.py .
+COPY inference.py .
 COPY openenv.yaml .
 
 COPY checkpoints/ ./checkpoints/
