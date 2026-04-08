@@ -6,19 +6,30 @@ demonstrate that PPO is the best algorithm choice for this domain.
 
 from __future__ import annotations
 
-from stable_baselines3 import DQN, A2C
+from stable_baselines3 import A2C, DQN
 
 from src.agent.networks import CustomFeatureExtractor
 
 
 def build_dqn(env) -> DQN:
-    """Build DQN agent for the DiscreteActionWrapper-wrapped environment.
+    """Build a DQN agent for the DiscreteActionWrapper-wrapped environment.
 
-    DQN requires Discrete action space, so the env must be wrapped
-    with DiscreteActionWrapper before calling this function.
+    DQN requires a ``Discrete`` action space, so the env must be wrapped
+    with ``DiscreteActionWrapper`` before calling this function.
 
-    Uses the same CustomFeatureExtractor for fair architectural comparison —
-    only the RL algorithm differs (value-based vs. policy gradient).
+    Uses the same ``CustomFeatureExtractor`` for fair architectural
+    comparison — only the RL algorithm differs (value-based vs. policy
+    gradient).
+
+    Parameters
+    ----------
+    env
+        A ``DummyVecEnv``-wrapped ``DiscreteActionWrapper`` environment.
+
+    Returns
+    -------
+    DQN
+        Configured DQN model ready for ``.learn()``.
     """
     policy_kwargs = dict(
         features_extractor_class=CustomFeatureExtractor,
@@ -44,11 +55,22 @@ def build_dqn(env) -> DQN:
 
 
 def build_a2c(env) -> A2C:
-    """Build A2C agent for the MultiDiscrete environment.
+    """Build an A2C agent for the MultiDiscrete environment.
 
-    A2C natively supports MultiDiscrete action spaces. Uses the same
-    CustomFeatureExtractor for fair comparison — only the RL algorithm
-    differs (synchronous advantage actor-critic vs. PPO's clipped objective).
+    A2C natively supports ``MultiDiscrete`` action spaces.  Uses the same
+    ``CustomFeatureExtractor`` for fair comparison — only the RL
+    algorithm differs (synchronous advantage actor-critic vs. PPO's
+    clipped objective).
+
+    Parameters
+    ----------
+    env
+        A ``DummyVecEnv``-wrapped ``CloudAutoScalingEnv``.
+
+    Returns
+    -------
+    A2C
+        Configured A2C model ready for ``.learn()``.
     """
     policy_kwargs = dict(
         features_extractor_class=CustomFeatureExtractor,

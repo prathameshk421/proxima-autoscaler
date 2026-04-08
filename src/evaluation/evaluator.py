@@ -1,27 +1,28 @@
 """Comprehensive evaluation with confidence intervals and RL baseline support.
 
 Evaluates PPO, DQN, A2C (RL agents) and heuristic baselines across all
-difficulties using multiple seeds. Reports mean ± std for all metrics.
+difficulties using multiple seeds.  Reports mean ± std for all metrics.
+
+Usage::
+
+    python -m src.evaluation.evaluator
 """
 
 from __future__ import annotations
 
 import json
 import os
-from typing import Callable, Dict, List, Optional
 
 import numpy as np
-from stable_baselines3 import PPO, DQN, A2C
+from stable_baselines3 import A2C, DQN, PPO
 
-from src.env.cloud_env import CloudAutoScalingEnv
-from src.env.discrete_action_wrapper import DiscreteActionWrapper
-from src.env.schemas import Action, Observation
 from src.baselines.heuristics import (
-    threshold_policy,
     step_scaling_policy,
     target_tracking_policy,
+    threshold_policy,
 )
-
+from src.env.cloud_env import CloudAutoScalingEnv
+from src.env.discrete_action_wrapper import DiscreteActionWrapper
 
 EVAL_SEEDS = [42, 123, 456, 789, 1024, 2048, 3000, 4096, 5555, 7777]
 
@@ -29,12 +30,33 @@ EVAL_SEEDS = [42, 123, 456, 789, 1024, 2048, 3000, 4096, 5555, 7777]
 def evaluate_episode(
     env: CloudAutoScalingEnv,
     policy_fn,
+    *,
     is_rl: bool = False,
     needs_discrete_wrapper: bool = False,
     seed: int = 42,
-) -> Dict[str, float]:
-    """Run a single episode and collect detailed metrics."""
-    base = env.unwrapped  # access base env attributes through wrappers
+) -> dict[str, float]:
+    """Run a single episode and collect detailed metrics.
+
+    Parameters
+    ----------
+    env : CloudAutoScalingEnv
+        Environment instance (may be wrapped with ``DiscreteActionWrapper``).
+    policy_fn : callable
+        Either ``model.predict`` (RL) or ``(Observation) -> Action`` (heuristic).
+    is_rl : bool
+        Whether the policy is an RL model.
+    needs_discrete_wrapper : bool
+        Whether the policy expects a flat ``Discrete`` action space.
+    seed : int
+        Seed used to reset the environment for this episode.
+
+    Returns
+    -------
+    dict
+        Per-episode metrics including reward, SLA violation rate,
+        oscillation count, capacity waste, and latency percentiles.
+    """
+    base = env.unwrapped
     obs_arr, _ = env.reset(seed=seed)
 
     ep_reward = 0.0
@@ -55,7 +77,7 @@ def evaluate_episode(
                 action_to_env = flat
 
                 a2 = flat % 2
-                a1 = (flat // 2) % 4
+                _a1 = (flat // 2) % 4  # noqa: F841 — kept for decode documentation
                 a0 = flat // 8
                 step_scaling = a0 - 2
                 cap_signal = a2
@@ -72,7 +94,6 @@ def evaluate_episode(
             cap_signal = action_obj.capacity_signal
 
             t_util = action_obj.target_utilization
-            t_idx = 1
             if t_util <= 0.45:
                 t_idx = 0
             elif t_util <= 0.55:
@@ -82,11 +103,13 @@ def evaluate_episode(
             else:
                 t_idx = 3
 
-            action_arr = np.array([
-                np.clip(step_scaling + 2, 0, 4),
-                t_idx,
-                np.clip(cap_signal, 0, 1),
-            ])
+            action_arr = np.array(
+                [
+                    np.clip(step_scaling + 2, 0, 4),
+                    t_idx,
+                    np.clip(cap_signal, 0, 1),
+                ]
+            )
             action_to_env = action_arr
 
         rho = base._lam / (base.current_capacity * base.mu) if base.current_capacity > 0 else 1.0
@@ -141,12 +164,34 @@ def evaluate_episode(
 def evaluate_policy_multi_seed(
     policy_name: str,
     policy_fn,
+    *,
     is_rl: bool,
     difficulty: str,
-    seeds: List[int],
+    seeds: list[int],
     needs_discrete_wrapper: bool = False,
-) -> Dict[str, float]:
-    """Evaluate a policy across multiple seeds and compute mean ± std."""
+) -> dict[str, float]:
+    """Evaluate a policy across multiple seeds and compute mean ± std.
+
+    Parameters
+    ----------
+    policy_name : str
+        Human-readable policy name (for logging).
+    policy_fn : callable
+        Policy function to evaluate.
+    is_rl : bool
+        Whether the policy is an RL model.
+    difficulty : str
+        Environment difficulty tier.
+    seeds : list[int]
+        Seeds to evaluate across.
+    needs_discrete_wrapper : bool
+        Whether to wrap the environment for DQN compatibility.
+
+    Returns
+    -------
+    dict
+        Metrics with ``{key}_mean`` and ``{key}_std`` for each metric.
+    """
     metrics_list = []
 
     for seed in seeds:
@@ -168,13 +213,26 @@ def evaluate_policy_multi_seed(
     for key in metrics_list[0]:
         vals = [m[key] for m in metrics_list]
         result[f"{key}_mean"] = float(np.mean(vals))
-        result[f"{key}_std"]  = float(np.std(vals))
+        result[f"{key}_std"] = float(np.std(vals))
 
     return result
 
 
 def load_rl_model(agent_type: str, path: str):
-    """Load an RL model from checkpoint, returning (model, needs_discrete_wrapper)."""
+    """Load an RL model from checkpoint.
+
+    Parameters
+    ----------
+    agent_type : str
+        One of ``"ppo"``, ``"dqn"``, ``"a2c"``.
+    path : str
+        Filesystem path to the model checkpoint.
+
+    Returns
+    -------
+    tuple[model | None, bool]
+        ``(model, needs_discrete_wrapper)`` — model is ``None`` on failure.
+    """
     cls_map = {"ppo": PPO, "dqn": DQN, "a2c": A2C}
     cls = cls_map.get(agent_type)
     if cls is None:
@@ -189,12 +247,12 @@ def load_rl_model(agent_type: str, path: str):
         return None, False
 
 
-def main():
+def main() -> None:
+    """Run comprehensive evaluation and print comparison tables."""
     print("=" * 90)
     print("  Proxima Auto-Scaler — Comprehensive Evaluation (mean ± std)")
     print("=" * 90)
 
-    # ── Load RL models ───────────────────────────────────────────────────────
     rl_configs = {
         "PPO": ("ppo", "checkpoints/ppo_cloud_final.zip"),
         "DQN": ("dqn", "checkpoints/dqn_final.zip"),
@@ -214,7 +272,6 @@ def main():
         else:
             print(f"  Skipping {name}: checkpoint not found")
 
-    # ── Heuristic baselines ──────────────────────────────────────────────────
     heuristic_policies = {
         "Threshold": {
             "fn": threshold_policy,
@@ -241,9 +298,10 @@ def main():
     all_results = []
     flat_results = {}
 
-    # ── Run evaluations ──────────────────────────────────────────────────────
-    print(f"\n  Evaluating {len(all_policies)} policies × {len(difficulties)} "
-          f"difficulties × {len(seeds)} seeds...\n")
+    print(
+        f"\n  Evaluating {len(all_policies)} policies × {len(difficulties)} "
+        f"difficulties × {len(seeds)} seeds...\n"
+    )
 
     for pol_name, pol_cfg in all_policies.items():
         flat_results[pol_name] = {}
@@ -257,27 +315,27 @@ def main():
                 needs_discrete_wrapper=pol_cfg["needs_discrete"],
             )
             flat_results[pol_name][diff] = result
-            all_results.append({
-                "policy": pol_name,
-                "difficulty": diff,
-                **result,
-            })
+            all_results.append(
+                {
+                    "policy": pol_name,
+                    "difficulty": diff,
+                    **result,
+                }
+            )
 
-    # ── Save JSON report ─────────────────────────────────────────────────────
     os.makedirs("logs", exist_ok=True)
     report_path = "evaluation_report.json"
     with open(report_path, "w") as f:
         json.dump(all_results, f, indent=2)
     print(f"  Report saved → {report_path}")
 
-    # ── Print comparison table ───────────────────────────────────────────────
     header = (
         f"| {'Policy':<15} | {'Diff':<6} | {'Reward':>14} "
         f"| {'SLA Viol%':>14} | {'Waste':>14} | {'Lat p95':>14} |"
     )
-    sep = f"|{'-'*17}|{'-'*8}|{'-'*16}|{'-'*16}|{'-'*16}|{'-'*16}|"
+    sep = f"|{'-' * 17}|{'-' * 8}|{'-' * 16}|{'-' * 16}|{'-' * 16}|{'-' * 16}|"
 
-    print(f"\n{'='*96}")
+    print(f"\n{'=' * 96}")
     print(header)
     print(sep)
 
@@ -285,15 +343,16 @@ def main():
         for diff in difficulties:
             m = flat_results[pol_name][diff]
             rew = f"{m['avg_reward_mean']:>6.1f}±{m['avg_reward_std']:<5.1f}"
-            sla = f"{m['sla_violation_rate_mean']*100:>5.1f}±{m['sla_violation_rate_std']*100:<5.1f}%"
+            sla = f"{m['sla_violation_rate_mean'] * 100:>5.1f}±{m['sla_violation_rate_std'] * 100:<5.1f}%"
             wst = f"{m['capacity_waste_mean']:>6.1f}±{m['capacity_waste_std']:<5.1f}"
             lat = f"{m['latency_p95_mean']:>5.2f}±{m['latency_p95_std']:<5.2f}"
-            print(f"| {pol_name:<15} | {diff:<6} | {rew:>14} | {sla:>14} | {wst:>14} | {lat:>14} |")
+            print(
+                f"| {pol_name:<15} | {diff:<6} | {rew:>14} | {sla:>14} | {wst:>14} | {lat:>14} |"
+            )
         print(sep)
 
-    print(f"{'='*96}")
+    print(f"{'=' * 96}")
 
-    # ── PPO vs best heuristic summary ────────────────────────────────────────
     if "PPO" in flat_results:
         for diff in difficulties:
             ppo_sla = flat_results["PPO"][diff]["sla_violation_rate_mean"]
@@ -304,8 +363,8 @@ def main():
             heur_sla = flat_results[best_heur_name][diff]["sla_violation_rate_mean"]
             improvement = (heur_sla - ppo_sla) / max(1e-6, heur_sla) * 100
             print(
-                f"  [{diff}] PPO SLA: {ppo_sla*100:.1f}% vs "
-                f"{best_heur_name}: {heur_sla*100:.1f}% "
+                f"  [{diff}] PPO SLA: {ppo_sla * 100:.1f}% vs "
+                f"{best_heur_name}: {heur_sla * 100:.1f}% "
                 f"({improvement:+.0f}% improvement)"
             )
 

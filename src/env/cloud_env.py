@@ -1,8 +1,11 @@
-"""Gymnasium environment for cloud auto-scaling simulation."""
+"""Gymnasium environment for cloud auto-scaling simulation.
+
+Implements a queue-based cloud environment with delayed server boot effects,
+multi-channel trend observations, and a shaped reward function balancing
+SLA compliance against resource waste.
+"""
 
 from __future__ import annotations
-
-from typing import List, Tuple
 
 import gymnasium as gym
 import numpy as np
@@ -11,7 +14,29 @@ from src.env.schemas import Observation
 
 
 class CloudAutoScalingEnv(gym.Env):
-    """Queue-based environment with delayed scale-out effects."""
+    """Queue-based cloud auto-scaling environment with delayed scale-out.
+
+    The environment simulates a pool of servers handling incoming requests
+    characterised by a time-varying arrival rate λ(t).  Scaling decisions
+    take effect after a configurable boot delay, and a cooldown period
+    prevents rapid oscillation.
+
+    Parameters
+    ----------
+    difficulty : str
+        Difficulty tier — ``"easy"``, ``"medium"``, or ``"hard"``.
+    seed : int
+        Random seed for reproducible workload generation.
+
+    Attributes
+    ----------
+    max_steps : int
+        Episode length (fixed at 200 timesteps).
+    T_sla : float
+        SLA latency threshold in seconds (2.0 s).
+    cooldown_period : int
+        Minimum steps between consecutive scaling actions.
+    """
 
     metadata = {"render_modes": []}
 
@@ -28,7 +53,6 @@ class CloudAutoScalingEnv(gym.Env):
         self._configure_difficulty(difficulty)
 
         self.action_space = gym.spaces.MultiDiscrete([5, 4, 2])
-        # 7 scalar + 4×8 trend channels = 39 dims
         self.observation_space = gym.spaces.Box(
             low=-1e6,
             high=1e6,
@@ -40,7 +64,7 @@ class CloudAutoScalingEnv(gym.Env):
         self.current_capacity = max(1, self.c_init)
         self.queue_length = 0.0
         self.cooldown_remaining = 0
-        self._boot_pipeline: List[Tuple[int, int]] = []
+        self._boot_pipeline: list[tuple[int, int]] = []
         self._lam = float(self.lam_base)
         self.latency_p95 = 0.0
         self.trend_window = [self._lam] * 8
@@ -51,6 +75,13 @@ class CloudAutoScalingEnv(gym.Env):
         self.queue_trend = [0.0] * 8
 
     def _configure_difficulty(self, difficulty: str) -> None:
+        """Set environment parameters for the given difficulty tier.
+
+        Parameters
+        ----------
+        difficulty : str
+            One of ``"easy"``, ``"medium"``, or ``"hard"``.
+        """
         if difficulty == "easy":
             self.c_init = 4
             self.c_max = 12
@@ -77,6 +108,20 @@ class CloudAutoScalingEnv(gym.Env):
             self.boot_delay = 3
 
     def reset(self, *, seed: int | None = None, options=None):
+        """Reset the environment for a new episode.
+
+        Parameters
+        ----------
+        seed : int | None
+            Optional new RNG seed.  If provided, replaces the stored seed.
+        options : dict | None
+            Unused; accepted for Gymnasium API compatibility.
+
+        Returns
+        -------
+        tuple[np.ndarray, dict]
+            Initial observation vector and an empty info dict.
+        """
         if seed is not None:
             self._init_seed = int(seed)
         self.rng = np.random.default_rng(self._init_seed)
@@ -88,7 +133,9 @@ class CloudAutoScalingEnv(gym.Env):
         self._boot_pipeline = []
 
         self._lam = float(self._demand_profile(self.current_step))
-        self.latency_p95 = self._estimate_latency(self._lam, self.current_capacity, self.queue_length)
+        self.latency_p95 = self._estimate_latency(
+            self._lam, self.current_capacity, self.queue_length
+        )
         self.trend_window = [self._lam] * 8
         init_util = self._utilization(self._lam, self.current_capacity)
         self.util_trend = [init_util] * 8
@@ -98,6 +145,7 @@ class CloudAutoScalingEnv(gym.Env):
         return self._build_obs(), {}
 
     def state(self) -> Observation:
+        """Return the current environment state as a structured Pydantic model."""
         return Observation(
             current_capacity=int(self.current_capacity),
             max_capacity=int(self.c_max),
@@ -114,56 +162,20 @@ class CloudAutoScalingEnv(gym.Env):
             queue_trend=[float(x) for x in self.queue_trend],
         )
 
-    def _build_obs(self) -> np.ndarray:
-        total_booting = int(sum(servers for servers, _ in self._boot_pipeline))
-        # Normalize trends for training stability
-        lam_scale = max(1.0, self.lam_base + self.lam_amp)
-        latency_scale = max(1.0, self.T_sla * 2.0)
-        queue_scale = max(1.0, self.c_max * self.mu)
-        norm_demand  = [x / lam_scale for x in self.trend_window]
-        norm_util    = self.util_trend  # already in [0, 1]
-        norm_latency = [x / latency_scale for x in self.latency_trend]
-        norm_queue   = [x / queue_scale for x in self.queue_trend]
-        obs = np.array(
-            [
-                float(self.current_capacity),
-                float(self.c_max),
-                float(total_booting),
-                float(self.cooldown_remaining),
-                float(self.queue_length),
-                float(self._lam),
-                float(self.mu),
-            ]
-            + norm_demand
-            + norm_util
-            + norm_latency
-            + norm_queue,
-            dtype=np.float32,
-        )
-        return obs
-
-    def _demand_profile(self, t: int) -> float:
-        sinusoid = self.lam_amp * np.sin(2.0 * np.pi * (t / 40.0))
-        burst = 0.0
-        if self.difficulty != "easy" and (t % 50 in (0, 1, 2)):
-            burst = self.lam_amp * 0.6
-        noise = self.rng.normal(0.0, self.noise_scale)
-        return float(max(0.0, self.lam_base + sinusoid + burst + noise))
-
-    def _utilization(self, lam: float, capacity: int) -> float:
-        if capacity <= 0:
-            return 1.0
-        return float(lam / max(1e-6, capacity * self.mu))
-
-    def _estimate_latency(self, lam: float, capacity: int, queue_len: float) -> float:
-        service = max(1e-6, capacity * self.mu)
-        rho = min(1.5, lam / service)
-        wait = queue_len / service
-        baseline = 0.08 + 0.35 * (rho**2)
-        penalty = 1.2 * max(0.0, rho - 1.0)
-        return float(max(0.0, baseline + penalty + wait))
-
     def step(self, action: np.ndarray):
+        """Advance the environment by one timestep.
+
+        Parameters
+        ----------
+        action : np.ndarray
+            MultiDiscrete action array ``[step_idx, util_idx, cap_signal]``.
+
+        Returns
+        -------
+        tuple
+            ``(obs, reward, terminated, truncated, info)`` following the
+            Gymnasium step API.
+        """
         step_idx = int(np.clip(action[0], 0, 4))
         cap_signal = int(np.clip(action[2], 0, 1))
         step_scaling = step_idx - 2
@@ -181,7 +193,7 @@ class CloudAutoScalingEnv(gym.Env):
             self.cooldown_remaining = max(0, self.cooldown_remaining - 1)
 
         activated = 0
-        next_boot: List[Tuple[int, int]] = []
+        next_boot: list[tuple[int, int]] = []
         for servers, remaining in self._boot_pipeline:
             remaining -= 1
             if remaining <= 0:
@@ -196,7 +208,9 @@ class CloudAutoScalingEnv(gym.Env):
         served = min(self.queue_length + self._lam, service_capacity)
         self.queue_length = max(0.0, self.queue_length + self._lam - served)
 
-        self.latency_p95 = self._estimate_latency(self._lam, self.current_capacity, self.queue_length)
+        self.latency_p95 = self._estimate_latency(
+            self._lam, self.current_capacity, self.queue_length
+        )
         util = self._utilization(self._lam, self.current_capacity)
 
         self.trend_window.pop(0)
@@ -208,17 +222,16 @@ class CloudAutoScalingEnv(gym.Env):
         self.queue_trend.pop(0)
         self.queue_trend.append(self.queue_length)
 
-        # Reward shaping
         sla_breach = max(0.0, self.latency_p95 - self.T_sla)
         reward = 0.5 - 12.0 * sla_breach
 
         excess_capacity = max(0.0, self.current_capacity * self.mu - self._lam)
-        reward -= 0.008 * (excess_capacity ** 2)          # quadratic waste penalty
-        reward -= 0.04 * abs(step_scaling)                 # action magnitude penalty
-        reward -= 0.15 * max(0.0, util - 1.0)             # congestion penalty
+        reward -= 0.008 * (excess_capacity**2)
+        reward -= 0.04 * abs(step_scaling)
+        reward -= 0.15 * max(0.0, util - 1.0)
 
         if cap_signal == 1 and util < 0.9:
-            reward -= 0.05                                 # false capacity-signal penalty
+            reward -= 0.05
 
         self.current_step += 1
         terminated = self.current_step >= self.max_steps
@@ -231,3 +244,59 @@ class CloudAutoScalingEnv(gym.Env):
             "utilization": float(util),
         }
         return self._build_obs(), float(reward), terminated, truncated, info
+
+    def _build_obs(self) -> np.ndarray:
+        """Construct the flat observation vector from current state.
+
+        Returns a 39-dimensional float32 array: 7 scalar features followed
+        by 4 normalised trend channels of 8 timesteps each.
+        """
+        total_booting = int(sum(servers for servers, _ in self._boot_pipeline))
+
+        lam_scale = max(1.0, self.lam_base + self.lam_amp)
+        latency_scale = max(1.0, self.T_sla * 2.0)
+        queue_scale = max(1.0, self.c_max * self.mu)
+        norm_demand = [x / lam_scale for x in self.trend_window]
+        norm_util = self.util_trend
+        norm_latency = [x / latency_scale for x in self.latency_trend]
+        norm_queue = [x / queue_scale for x in self.queue_trend]
+        return np.array(
+            [
+                float(self.current_capacity),
+                float(self.c_max),
+                float(total_booting),
+                float(self.cooldown_remaining),
+                float(self.queue_length),
+                float(self._lam),
+                float(self.mu),
+            ]
+            + norm_demand
+            + norm_util
+            + norm_latency
+            + norm_queue,
+            dtype=np.float32,
+        )
+
+    def _demand_profile(self, t: int) -> float:
+        """Return the synthetic demand rate λ(t) at timestep *t*."""
+        sinusoid = self.lam_amp * np.sin(2.0 * np.pi * (t / 40.0))
+        burst = 0.0
+        if self.difficulty != "easy" and (t % 50 in (0, 1, 2)):
+            burst = self.lam_amp * 0.6
+        noise = self.rng.normal(0.0, self.noise_scale)
+        return float(max(0.0, self.lam_base + sinusoid + burst + noise))
+
+    def _utilization(self, lam: float, capacity: int) -> float:
+        """Return server utilisation ρ = λ / (c · μ), clamped above zero."""
+        if capacity <= 0:
+            return 1.0
+        return float(lam / max(1e-6, capacity * self.mu))
+
+    def _estimate_latency(self, lam: float, capacity: int, queue_len: float) -> float:
+        """Return an estimated p95 latency from a simplified queueing model."""
+        service = max(1e-6, capacity * self.mu)
+        rho = min(1.5, lam / service)
+        wait = queue_len / service
+        baseline = 0.08 + 0.35 * (rho**2)
+        penalty = 1.2 * max(0.0, rho - 1.0)
+        return float(max(0.0, baseline + penalty + wait))

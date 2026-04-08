@@ -7,12 +7,17 @@ import numpy as np
 
 
 class DiscreteActionWrapper(gym.ActionWrapper):
-    """Flattens MultiDiscrete([5, 4, 2]) → Discrete(40) for value-based methods.
+    """Flatten ``MultiDiscrete([5, 4, 2])`` → ``Discrete(40)`` for value-based methods.
 
-    Encoding:  flat_action = a0 * (4*2) + a1 * 2 + a2
-    Decoding:  a2 = flat_action % 2
-               a1 = (flat_action // 2) % 4
-               a0 = flat_action // (4*2)
+    Encoding::
+
+        flat_action = a0 * (4*2) + a1 * 2 + a2
+
+    Decoding::
+
+        a2 = flat_action % 2
+        a1 = (flat_action // 2) % 4
+        a0 = flat_action // (4*2)
     """
 
     def __init__(self, env: gym.Env):
@@ -35,6 +40,6 @@ class DiscreteActionWrapper(gym.ActionWrapper):
         """Encode a MultiDiscrete action into a flat integer."""
         flat = 0
         for i, a in enumerate(multi_action):
-            multiplier = int(np.prod(self._nvec[i + 1:]))
+            multiplier = int(np.prod(self._nvec[i + 1 :]))
             flat += int(a) * multiplier
         return flat

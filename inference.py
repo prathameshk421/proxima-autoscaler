@@ -9,35 +9,30 @@ Required environment variables:
     HF_TOKEN       – Hugging Face token (or API_KEY / OPENAI_API_KEY)
 """
 
+from __future__ import annotations
+
 import json
 import os
 import re
-import sys
-from typing import List
 
 import numpy as np
+from dotenv import load_dotenv
 from openai import OpenAI
 
 from src.env.cloud_env import CloudAutoScalingEnv
-from src.env.schemas import Action, Observation, Reward
-from dotenv import load_dotenv
+from src.env.schemas import Action, Observation
 
 load_dotenv()
 
-# ── Required environment variables ────────────────────────────────────────
-API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
-MODEL_NAME   = os.getenv("MODEL_NAME",   "Qwen/Qwen2.5-72B-Instruct")
-API_KEY      = (
-    os.getenv("HF_TOKEN")
-    or os.getenv("API_KEY")
-    or os.getenv("OPENAI_API_KEY")
-    or ""
-)
 
-MAX_STEPS   = 200
+API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
+MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
+API_KEY = os.getenv("HF_TOKEN") or os.getenv("API_KEY") or os.getenv("OPENAI_API_KEY") or ""
+
+MAX_STEPS = 200
 TEMPERATURE = 0.2
-MAX_TOKENS  = 256
-TIMEOUT_SEC = 30          # per-request timeout to stay within 20-min budget
+MAX_TOKENS = 256
+TIMEOUT_SEC = 30
 
 SYSTEM_PROMPT = """\
 You are a cloud auto-scaling agent. Your job is to decide how many servers to
@@ -63,7 +58,7 @@ Guidelines:
 
 
 def _fmt_obs(obs: Observation) -> str:
-    """Format observation as a concise prompt string."""
+    """Format an observation as a concise prompt string for the LLM."""
     return (
         f"Servers: {obs.current_capacity}/{obs.max_capacity} | "
         f"Util: {obs.avg_utilization:.2f} | "
@@ -78,8 +73,8 @@ def _fmt_obs(obs: Observation) -> str:
 
 
 def _parse_action(text: str) -> Action:
-    """Extract JSON action from LLM response, with fallback defaults."""
-    json_match = re.search(r'\{[^}]+\}', text)
+    """Extract a JSON action from LLM response text, with fallback defaults."""
+    json_match = re.search(r"\{[^}]+\}", text)
     if json_match:
         try:
             data = json.loads(json_match.group())
@@ -94,7 +89,7 @@ def _parse_action(text: str) -> Action:
 
 
 def _action_to_array(action: Action) -> np.ndarray:
-    """Convert Action pydantic model to gymnasium MultiDiscrete array."""
+    """Convert an Action pydantic model to a gymnasium MultiDiscrete array."""
     t_util = action.target_utilization
     if t_util <= 0.45:
         t_idx = 0
@@ -104,36 +99,44 @@ def _action_to_array(action: Action) -> np.ndarray:
         t_idx = 2
     else:
         t_idx = 3
-    return np.array([
-        np.clip(action.step_scaling + 2, 0, 4),
-        t_idx,
-        np.clip(action.capacity_signal, 0, 1),
-    ])
+    return np.array(
+        [
+            np.clip(action.step_scaling + 2, 0, 4),
+            t_idx,
+            np.clip(action.capacity_signal, 0, 1),
+        ]
+    )
 
 
 def _normalize_score(total_reward: float) -> float:
     """Normalize cumulative reward to (0, 1) — strictly excludes 0.0 and 1.0."""
     min_possible = -MAX_STEPS * 1.5
-    max_possible =  MAX_STEPS * 0.5
-    return float(np.clip(
-        (total_reward - min_possible) / (max_possible - min_possible),
-        0.001, 0.999,
-    ))
+    max_possible = MAX_STEPS * 0.5
+    return float(
+        np.clip(
+            (total_reward - min_possible) / (max_possible - min_possible),
+            0.001,
+            0.999,
+        )
+    )
 
 
-# ── Structured stdout logging (exact format required by evaluator) ─────────
-
-def log_start(task: str, env: str, model: str):
+def log_start(task: str, env: str, model: str) -> None:
+    """Emit the ``[START]`` log line for the OpenEnv evaluator."""
     print(f"[START] task={task} env={env} model={model}", flush=True)
 
-def log_step(step: int, action: str, reward: float, done: bool, error: str | None):
+
+def log_step(step: int, action: str, reward: float, done: bool, error: str | None) -> None:
+    """Emit a ``[STEP]`` log line for the OpenEnv evaluator."""
     print(
         f"[STEP] step={step} action={action} reward={reward:.2f} "
         f"done={str(done).lower()} error={error or 'null'}",
         flush=True,
     )
 
-def log_end(success: bool, steps: int, score: float, rewards: List[float]):
+
+def log_end(success: bool, steps: int, score: float, rewards: list[float]) -> None:
+    """Emit the ``[END]`` log line for the OpenEnv evaluator."""
     rewards_str = ",".join(f"{r:.2f}" for r in rewards)
     print(
         f"[END] success={str(success).lower()} steps={steps} "
@@ -142,10 +145,21 @@ def log_end(success: bool, steps: int, score: float, rewards: List[float]):
     )
 
 
-# ── Main inference loop ────────────────────────────────────────────────────
-
 def run_task(difficulty: str, seed: int = 42) -> float:
-    """Run one episode on the given difficulty, return normalised score."""
+    """Run one episode on the given difficulty, returning the normalised score.
+
+    Parameters
+    ----------
+    difficulty : str
+        One of ``"easy"``, ``"medium"``, ``"hard"``.
+    seed : int
+        Random seed for deterministic evaluation.
+
+    Returns
+    -------
+    float
+        Normalised score in (0, 1).
+    """
     client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY, timeout=TIMEOUT_SEC)
     env = CloudAutoScalingEnv(difficulty=difficulty, seed=seed)
 
@@ -156,7 +170,7 @@ def run_task(difficulty: str, seed: int = 42) -> float:
     )
 
     obs_arr, _ = env.reset(seed=seed)
-    rewards: List[float] = []
+    rewards: list[float] = []
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
 
     for step in range(1, MAX_STEPS + 1):
@@ -180,7 +194,7 @@ def run_task(difficulty: str, seed: int = 42) -> float:
             action_pyd = Action(step_scaling=0, target_utilization=0.5, capacity_signal=0)
 
         messages.append({"role": "assistant", "content": reply})
-        # Keep context window manageable
+
         if len(messages) > 20:
             messages = messages[:1] + messages[-18:]
 
@@ -201,21 +215,21 @@ def run_task(difficulty: str, seed: int = 42) -> float:
     return score
 
 
-def main():
+def main() -> None:
     """Run inference across all three task difficulties."""
     difficulties = ["easy", "medium", "hard"]
     seed = int(os.getenv("SEED", "42"))
 
     scores = {}
     for diff in difficulties:
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(f"  Running task: {diff} (seed={seed})")
-        print(f"{'='*60}\n")
+        print(f"{'=' * 60}\n")
         scores[diff] = run_task(diff, seed=seed)
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("  FINAL SCORES")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
     for diff, s in scores.items():
         print(f"  {diff:>8s}: {s:.4f}")
     avg = sum(scores.values()) / len(scores)

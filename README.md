@@ -189,28 +189,34 @@ uvicorn app:app --host 0.0.0.0 --port 7860
 
 ```
 proxima-autoscaler/
-├── app.py                    # FastAPI application (OpenEnv endpoints)
-├── inference.py              # LLM baseline inference script
-├── openenv.yaml              # OpenEnv specification
-├── Dockerfile                # Container definition
-├── pyproject.toml            # Dependencies
-├── checkpoints/              # Trained model weights
-│   └── ppo_cloud_final.zip
+├── app.py                          # FastAPI application (OpenEnv endpoints)
+├── inference.py                    # LLM baseline inference script
+├── openenv.yaml                    # OpenEnv specification
+├── Dockerfile                      # Container definition
+├── pyproject.toml                  # Dependencies & Ruff config
+├── prevalidate.sh                  # HF Space submission validator
+├── checkpoints/
+│   └── ppo_cloud_final.zip         # Trained PPO model weights
 └── src/
     ├── env/
-    │   ├── cloud_env.py      # CloudAutoScalingEnv (Gymnasium)
-    │   ├── schemas.py        # Observation, Action, Reward models
-    │   ├── queue_model.py    # M/M/c queueing model
-    │   └── workload.py       # Workload generators
+    │   ├── cloud_env.py            # CloudAutoScalingEnv (Gymnasium)
+    │   ├── schemas.py              # Observation, Action, Reward models
+    │   ├── queue_model.py          # M/M/c queueing model (Erlang-C)
+    │   ├── workload.py             # Workload generators (MMPP, sinusoidal)
+    │   └── discrete_action_wrapper.py  # MultiDiscrete → Discrete (DQN)
     ├── agent/
-    │   ├── networks.py       # GRU+MLP feature extractor
-    │   ├── ppo_agent.py      # PPO agent builder
-    │   └── train.py          # Curriculum training script
+    │   ├── networks.py             # GRU+MLP feature extractor
+    │   ├── ppo_agent.py            # PPO agent builder & loader
+    │   └── train.py                # Curriculum training script
     ├── baselines/
-    │   └── heuristics.py     # Threshold, Step, Target Tracking
+    │   ├── heuristics.py           # Threshold, Step, Target Tracking
+    │   ├── rl_baselines.py         # DQN & A2C agent builders
+    │   └── train_rl_baselines.py   # RL baseline training script
     └── evaluation/
-        ├── evaluator.py      # Multi-baseline evaluator
-        └── inference.py      # PPO inference module
+        ├── evaluator.py            # Multi-seed evaluator (RL + heuristic)
+        ├── inference.py            # PPO inference module
+        ├── ablation_configs.py     # Ablation study configurations
+        └── run_ablations.py        # Ablation study runner
 ```
 
 ---
