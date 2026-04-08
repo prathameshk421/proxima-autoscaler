@@ -29,8 +29,11 @@ dev = [
     "pytest",
 ]
 
+[project.scripts]
+serve = "server.app:main"
+
 [tool.hatch.build.targets.wheel]
-packages = ["src"]
+packages = ["src", "server"]
 
 
 

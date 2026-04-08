@@ -23,7 +23,7 @@ Desktop.ini
 .mypy_cache/
 .coverage
 htmlcov/
-uv.lock
+
 
 # Jupyter
 .ipynb_checkpoints/
