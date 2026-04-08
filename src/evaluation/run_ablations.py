@@ -2,6 +2,10 @@
 
 Trains ablation variants, evaluates each across all difficulties and
 multiple seeds, then outputs a comparison table with mean ± std.
+
+Usage::
+
+    python -m src.evaluation.run_ablations --ablations full_model no_gru
 """
 
 from __future__ import annotations
@@ -11,8 +15,8 @@ import json
 import os
 import random
 import shutil
-from typing import Dict, List, Optional
 
+import gymnasium as gym
 import numpy as np
 import torch
 from stable_baselines3 import PPO
@@ -20,23 +24,26 @@ from stable_baselines3.common.callbacks import EvalCallback
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 from stable_baselines3.common.vec_env import DummyVecEnv
-
-import gymnasium as gym
 from torch import nn
 
-from src.env.cloud_env import CloudAutoScalingEnv
 from src.agent.networks import CustomFeatureExtractor
-from src.evaluation.ablation_configs import AblationConfig, ALL_ABLATIONS
+from src.env.cloud_env import CloudAutoScalingEnv
+from src.evaluation.ablation_configs import ALL_ABLATIONS, AblationConfig
 
-
-# ── Flat MLP extractor (used by no_gru ablation) ────────────────────────────
 
 class FlatFeatureExtractor(BaseFeaturesExtractor):
     """Simple MLP feature extractor with no temporal reasoning.
 
     Processes the entire observation vector through a 2-layer MLP,
     treating all features (including the trend window) as independent
-    scalar inputs. This is the ablation control for the GRU.
+    scalar inputs.  This is the ablation control for the GRU.
+
+    Parameters
+    ----------
+    observation_space : gym.spaces.Box
+        The environment observation space.
+    features_dim : int
+        Output dimensionality (default 64).
     """
 
     def __init__(self, observation_space: gym.spaces.Box, features_dim: int = 64):
@@ -50,13 +57,26 @@ class FlatFeatureExtractor(BaseFeaturesExtractor):
         )
 
     def forward(self, observations: torch.Tensor) -> torch.Tensor:
+        """Forward pass through the flat MLP."""
         return self.net(observations)
 
 
-# ── Modified environment for ablation overrides ──────────────────────────────
-
 class AblationEnv(CloudAutoScalingEnv):
-    """CloudAutoScalingEnv with configurable reward weights and boot delay."""
+    """CloudAutoScalingEnv with configurable reward weights and boot delay.
+
+    Parameters
+    ----------
+    difficulty : str
+        Difficulty tier.
+    seed : int
+        Random seed.
+    sla_penalty : float
+        SLA breach penalty weight.
+    waste_penalty : float
+        Over-provisioning penalty weight.
+    override_boot_delay : int | None
+        If set, overrides the per-difficulty boot delay.
+    """
 
     def __init__(
         self,
@@ -64,7 +84,7 @@ class AblationEnv(CloudAutoScalingEnv):
         seed: int = 42,
         sla_penalty: float = 12.0,
         waste_penalty: float = 0.008,
-        override_boot_delay: Optional[int] = None,
+        override_boot_delay: int | None = None,
     ):
         self._sla_penalty = sla_penalty
         self._waste_penalty = waste_penalty
@@ -72,11 +92,13 @@ class AblationEnv(CloudAutoScalingEnv):
         super().__init__(difficulty=difficulty, seed=seed)
 
     def _configure_difficulty(self, difficulty: str) -> None:
+        """Apply difficulty settings, then override boot delay if requested."""
         super()._configure_difficulty(difficulty)
         if self._override_boot_delay is not None:
             self.boot_delay = self._override_boot_delay
 
     def step(self, action: np.ndarray):
+        """Advance the environment using ablation-specific reward weights."""
         step_idx = int(np.clip(action[0], 0, 4))
         cap_signal = int(np.clip(action[2], 0, 1))
         step_scaling = step_idx - 2
@@ -121,7 +143,7 @@ class AblationEnv(CloudAutoScalingEnv):
         reward = 0.5 - self._sla_penalty * sla_breach
 
         excess_capacity = max(0.0, self.current_capacity * self.mu - self._lam)
-        reward -= self._waste_penalty * (excess_capacity ** 2)
+        reward -= self._waste_penalty * (excess_capacity**2)
         reward -= 0.04 * abs(step_scaling)
         reward -= 0.15 * max(0.0, util - 1.0)
 
@@ -141,10 +163,21 @@ class AblationEnv(CloudAutoScalingEnv):
         return self._build_obs(), float(reward), terminated, truncated, info
 
 
-# ── Builder ──────────────────────────────────────────────────────────────────
-
 def build_ablation_ppo(env, config: AblationConfig) -> PPO:
-    """Build PPO agent with feature extractor chosen by ablation config."""
+    """Build PPO agent with feature extractor chosen by ablation config.
+
+    Parameters
+    ----------
+    env
+        Training environment (``VecEnv``-wrapped).
+    config : AblationConfig
+        Ablation configuration controlling architecture choice.
+
+    Returns
+    -------
+    PPO
+        Configured PPO agent.
+    """
     if config.use_gru:
         extractor_class = CustomFeatureExtractor
     else:
@@ -176,6 +209,7 @@ def build_ablation_ppo(env, config: AblationConfig) -> PPO:
 
 def make_ablation_env(config: AblationConfig, difficulty: str, seed: int):
     """Factory for AblationEnv with the right overrides."""
+
     def _thunk():
         env = AblationEnv(
             difficulty=difficulty,
@@ -185,18 +219,34 @@ def make_ablation_env(config: AblationConfig, difficulty: str, seed: int):
             override_boot_delay=config.override_boot_delay,
         )
         return Monitor(env)
+
     return _thunk
 
-
-# ── Evaluation ───────────────────────────────────────────────────────────────
 
 def evaluate_ablation(
     model: PPO,
     config: AblationConfig,
     difficulty: str,
-    seeds: List[int],
-) -> Dict[str, float]:
-    """Evaluate a trained ablation model across multiple seeds."""
+    seeds: list[int],
+) -> dict[str, float]:
+    """Evaluate a trained ablation model across multiple seeds.
+
+    Parameters
+    ----------
+    model : PPO
+        Trained ablation PPO model.
+    config : AblationConfig
+        Ablation configuration (for env overrides).
+    difficulty : str
+        Difficulty tier to evaluate.
+    seeds : list[int]
+        Evaluation seeds.
+
+    Returns
+    -------
+    dict
+        Mean and std for reward, SLA violation rate, and waste.
+    """
     rewards, sla_rates, wastes = [], [], []
 
     for seed in seeds:
@@ -228,35 +278,50 @@ def evaluate_ablation(
 
     return {
         "reward_mean": float(np.mean(rewards)),
-        "reward_std":  float(np.std(rewards)),
-        "sla_mean":    float(np.mean(sla_rates)),
-        "sla_std":     float(np.std(sla_rates)),
-        "waste_mean":  float(np.mean(wastes)),
-        "waste_std":   float(np.std(wastes)),
+        "reward_std": float(np.std(rewards)),
+        "sla_mean": float(np.mean(sla_rates)),
+        "sla_std": float(np.std(sla_rates)),
+        "waste_mean": float(np.mean(wastes)),
+        "waste_std": float(np.std(wastes)),
     }
 
-
-# ── Main runner ──────────────────────────────────────────────────────────────
 
 def run_single_ablation(
     config: AblationConfig,
     seed: int,
     log_dir: str,
-    eval_seeds: List[int],
-) -> Dict:
-    """Train and evaluate a single ablation variant."""
-    print(f"\n{'#'*60}")
+    eval_seeds: list[int],
+) -> dict:
+    """Train and evaluate a single ablation variant.
+
+    Parameters
+    ----------
+    config : AblationConfig
+        Ablation configuration.
+    seed : int
+        Training seed.
+    log_dir : str
+        Directory for evaluation logs.
+    eval_seeds : list[int]
+        Seeds used for post-training evaluation.
+
+    Returns
+    -------
+    dict
+        Results keyed by difficulty tier.
+    """
+    print(f"\n{'#' * 60}")
     print(f"  Ablation: {config.name}")
     print(f"  {config.description}")
-    print(f"{'#'*60}")
+    print(f"{'#' * 60}")
 
     model = None
 
     for phase_idx, (difficulty, num_timesteps) in enumerate(config.curriculum):
-        print(f"\n  Phase {phase_idx+1}: '{difficulty}' ({num_timesteps:,} steps)")
+        print(f"\n  Phase {phase_idx + 1}: '{difficulty}' ({num_timesteps:,} steps)")
 
         train_env = DummyVecEnv([make_ablation_env(config, difficulty, seed)])
-        eval_env  = DummyVecEnv([make_ablation_env(config, difficulty, 123)])
+        eval_env = DummyVecEnv([make_ablation_env(config, difficulty, 123)])
 
         if phase_idx == 0:
             model = build_ablation_ppo(train_env, config)
@@ -299,12 +364,16 @@ def run_single_ablation(
     return results
 
 
-def main():
+def main() -> None:
+    """CLI entry-point: parse args and run selected ablation studies."""
     parser = argparse.ArgumentParser(description="Run Ablation Studies")
-    parser.add_argument("--ablations", nargs="+",
-                        default=list(ALL_ABLATIONS.keys()),
-                        choices=list(ALL_ABLATIONS.keys()),
-                        help="Which ablations to run")
+    parser.add_argument(
+        "--ablations",
+        nargs="+",
+        default=list(ALL_ABLATIONS.keys()),
+        choices=list(ALL_ABLATIONS.keys()),
+        help="Which ablations to run",
+    )
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--log-dir", type=str, default="./logs/ablations")
     parser.add_argument("--n-eval-seeds", type=int, default=10)
@@ -333,10 +402,11 @@ def main():
         json.dump(all_results, f, indent=2)
     print(f"\nReport saved → {report_path}")
 
-    # ── Print comparison table ───────────────────────────────────────────────
-    print(f"\n{'='*95}")
-    print(f"| {'Variant':<20} | {'Diff':<6} | {'Reward':>12} | {'SLA Viol%':>12} | {'Waste':>12} |")
-    print(f"|{'-'*22}|{'-'*8}|{'-'*14}|{'-'*14}|{'-'*14}|")
+    print(f"\n{'=' * 95}")
+    print(
+        f"| {'Variant':<20} | {'Diff':<6} | {'Reward':>12} | {'SLA Viol%':>12} | {'Waste':>12} |"
+    )
+    print(f"|{'-' * 22}|{'-' * 8}|{'-' * 14}|{'-' * 14}|{'-' * 14}|")
 
     for abl_name in args.ablations:
         data = all_results[abl_name]["results"]
@@ -346,12 +416,12 @@ def main():
                 f"| {ALL_ABLATIONS[abl_name].name:<20} "
                 f"| {diff:<6} "
                 f"| {m['reward_mean']:>6.1f}±{m['reward_std']:<5.1f} "
-                f"| {m['sla_mean']*100:>5.1f}±{m['sla_std']*100:<5.1f}% "
+                f"| {m['sla_mean'] * 100:>5.1f}±{m['sla_std'] * 100:<5.1f}% "
                 f"| {m['waste_mean']:>6.1f}±{m['waste_std']:<5.1f} |"
             )
-        print(f"|{'-'*22}|{'-'*8}|{'-'*14}|{'-'*14}|{'-'*14}|")
+        print(f"|{'-' * 22}|{'-' * 8}|{'-' * 14}|{'-' * 14}|{'-' * 14}|")
 
-    print(f"{'='*95}")
+    print(f"{'=' * 95}")
 
 
 if __name__ == "__main__":

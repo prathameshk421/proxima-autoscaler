@@ -16,6 +16,8 @@ build/
 
 # IDE / OS
 .DS_Store
+Thumbs.db
+Desktop.ini
 .vscode/
 .idea/
 
@@ -24,10 +26,27 @@ build/
 .ruff_cache/
 .mypy_cache/
 
-# Project artifacts (not needed in container)
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# Training artifacts (not needed in container)
+runs/
+lightning_logs/
+wandb/
+tensorboard/
 logs/
-checkpoints_backup_*/
+reports/
+
+# Project artifacts
+checkpoints/best_*/
+checkpoints/periodic_*/
+checkpoints/ablation_*/
+checkpoints/dqn/
+checkpoints/a2c/
 eval_results.txt
 evaluation_report.json
 workload_test.png
 problem_statement_files/
+uv.lock
+.env

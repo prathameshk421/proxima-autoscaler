@@ -1,15 +1,21 @@
-"""FastAPI application for Proxima Auto-Scaler (OpenEnv-compliant)."""
+"""FastAPI application for Proxima Auto-Scaler (OpenEnv-compliant).
 
-from typing import Dict, Optional
+Exposes the step-level environment API required by the OpenEnv specification,
+plus convenience endpoints for batch evaluation and baseline comparison.
+"""
 
-from fastapi import FastAPI, Query
+from __future__ import annotations
+
 import numpy as np
-import uvicorn
+from fastapi import FastAPI, Query
 from stable_baselines3 import PPO
 
+from src.baselines.heuristics import (
+    step_scaling_policy,
+    target_tracking_policy,
+    threshold_policy,
+)
 from src.env.cloud_env import CloudAutoScalingEnv
-from src.env.schemas import Action, Observation, Reward
-from src.baselines.heuristics import threshold_policy, step_scaling_policy, target_tracking_policy
 
 app = FastAPI(
     title="Proxima Auto-Scaler API",
@@ -17,7 +23,6 @@ app = FastAPI(
     version="0.1.0",
 )
 
-# ── Model loading ─────────────────────────────────────────────────────────
 
 try:
     model = PPO.load("checkpoints/ppo_cloud_final.zip", device="cpu")
@@ -27,28 +32,54 @@ except Exception as e:
     model = None
     model_loaded = False
 
-# ── Persistent env sessions (keyed by difficulty) for step API ────────────
 
-_sessions: Dict[str, CloudAutoScalingEnv] = {}
+_sessions: dict[str, CloudAutoScalingEnv] = {}
 
-
-# ── Helper: normalise cumulative reward → [0, 1] ─────────────────────────
 
 def _normalize_score(total_reward: float, n_steps: int = 200) -> float:
     """Normalize cumulative reward to (0, 1) — strictly excludes 0.0 and 1.0."""
     min_possible = -n_steps * 1.5
     max_possible = n_steps * 0.5
-    return float(np.clip(
-        (total_reward - min_possible) / (max_possible - min_possible),
-        0.001, 0.999,
-    ))
+    return float(
+        np.clip(
+            (total_reward - min_possible) / (max_possible - min_possible),
+            0.001,
+            0.999,
+        )
+    )
 
 
-def _build_reward(raw: float, info: dict, env: CloudAutoScalingEnv,
-                   cumulative: float, step: int) -> dict:
+def _build_reward(
+    raw: float,
+    info: dict,
+    env: CloudAutoScalingEnv,
+    cumulative: float,
+    step: int,
+) -> dict:
+    """Construct a structured reward dictionary from raw step outputs.
+
+    Parameters
+    ----------
+    raw : float
+        Raw scalar reward for the current step.
+    info : dict
+        Info dictionary returned by ``env.step()``.
+    env : CloudAutoScalingEnv
+        Active environment instance (used for SLA threshold and capacity).
+    cumulative : float
+        Running cumulative reward across the episode so far.
+    step : int
+        Current step index within the episode.
+
+    Returns
+    -------
+    dict
+        Structured reward with ``value``, ``sla_penalty``, ``waste_penalty``,
+        and normalised ``score`` fields.
+    """
     sla_pen = max(0.0, info["latency_p95"] - env.T_sla) * 12.0
     excess = max(0.0, env.current_capacity * env.mu - env._lam)
-    waste_pen = 0.008 * (excess ** 2)
+    waste_pen = 0.008 * (excess**2)
     return {
         "value": raw,
         "sla_penalty": round(sla_pen, 4),
@@ -57,12 +88,9 @@ def _build_reward(raw: float, info: dict, env: CloudAutoScalingEnv,
     }
 
 
-# ══════════════════════════════════════════════════════════════════════════
-# OpenEnv step-level endpoints
-# ══════════════════════════════════════════════════════════════════════════
-
 @app.get("/")
 def root():
+    """Root health probe returning service name and model status."""
     return {
         "name": "Proxima Auto-Scaler API",
         "status": "ok",
@@ -72,6 +100,7 @@ def root():
 
 @app.get("/health")
 def health_check():
+    """Service health check with model loading status."""
     return {"status": "ok", "model_loaded": model_loaded}
 
 
@@ -146,16 +175,17 @@ def step_env(
     else:
         t_idx = 3
 
-    action_arr = np.array([
-        np.clip(step_scaling + 2, 0, 4),
-        t_idx,
-        np.clip(capacity_signal, 0, 1),
-    ])
+    action_arr = np.array(
+        [
+            np.clip(step_scaling + 2, 0, 4),
+            t_idx,
+            np.clip(capacity_signal, 0, 1),
+        ]
+    )
 
     obs_arr, reward, terminated, truncated, info = env.step(action_arr)
     done = terminated or truncated
 
-    # Compute running cumulative reward
     cum_reward = getattr(env, "_cum_reward", 0.0) + float(reward)
     env._cum_reward = cum_reward
 
@@ -175,12 +205,25 @@ def step_env(
     }
 
 
-# ══════════════════════════════════════════════════════════════════════════
-# Batch evaluation endpoints (kept for backwards-compat & demo)
-# ══════════════════════════════════════════════════════════════════════════
+def run_policy_evaluation(env, policy_fn, *, is_ppo: bool = False):
+    """Run a full 200-step evaluation episode using the given policy.
 
-def run_policy_evaluation(env, policy_fn, is_ppo=False):
-    """Core evaluation loop matching specifications precisely."""
+    Parameters
+    ----------
+    env : CloudAutoScalingEnv
+        Environment instance (will be reset using its stored seed).
+    policy_fn : callable
+        Either ``model.predict`` (when *is_ppo* is True) or a heuristic
+        function ``(Observation) -> Action``.
+    is_ppo : bool
+        Whether the policy is a PPO model (changes action decoding).
+
+    Returns
+    -------
+    dict
+        Evaluation results with ``score``, ``sla_violation_rate``,
+        ``avg_reward``, and per-step ``steps`` log.
+    """
     obs_arr, _ = env.reset(seed=env._init_seed)
     total_reward = 0.0
     sla_violations = 0
@@ -201,33 +244,40 @@ def run_policy_evaluation(env, policy_fn, is_ppo=False):
             t_util = action_obj.target_utilization
             cap_signal = action_obj.capacity_signal
 
-            t_idx = 1
-            if t_util <= 0.45: t_idx = 0
-            elif t_util <= 0.55: t_idx = 1
-            elif t_util <= 0.65: t_idx = 2
-            else: t_idx = 3
+            if t_util <= 0.45:
+                t_idx = 0
+            elif t_util <= 0.55:
+                t_idx = 1
+            elif t_util <= 0.65:
+                t_idx = 2
+            else:
+                t_idx = 3
 
-            action_arr = np.array([
-                np.clip(step_scaling + 2, 0, 4),
-                t_idx,
-                np.clip(cap_signal, 0, 1)
-            ])
+            action_arr = np.array(
+                [
+                    np.clip(step_scaling + 2, 0, 4),
+                    t_idx,
+                    np.clip(cap_signal, 0, 1),
+                ]
+            )
 
         obs_dict = env.state().model_dump()
         action_dict = {
             "step_scaling": step_scaling,
             "target_utilization": t_util,
-            "capacity_signal": cap_signal
+            "capacity_signal": cap_signal,
         }
 
         obs_arr, reward, terminated, truncated, info = env.step(action_arr)
 
-        steps_log.append({
-            "t": t,
-            "obs": obs_dict,
-            "action": action_dict,
-            "reward": float(reward)
-        })
+        steps_log.append(
+            {
+                "t": t,
+                "obs": obs_dict,
+                "action": action_dict,
+                "reward": float(reward),
+            }
+        )
 
         total_reward += float(reward)
         if info["latency_p95"] > env.T_sla:
@@ -242,7 +292,7 @@ def run_policy_evaluation(env, policy_fn, is_ppo=False):
         "score": score,
         "sla_violation_rate": sla_violations / max(1, len(steps_log)),
         "avg_reward": total_reward,
-        "steps": steps_log
+        "steps": steps_log,
     }
 
 
@@ -261,7 +311,7 @@ def evaluate(difficulty: str = Query("easy"), seed: int = Query(42)):
         "score": res["score"],
         "sla_violation_rate": res["sla_violation_rate"],
         "avg_reward": res["avg_reward"],
-        "steps": res["steps"]
+        "steps": res["steps"],
     }
 
 
@@ -274,7 +324,7 @@ def baselines(difficulty: str = Query("easy"), seed: int = Query(42)):
     pols = [
         threshold_policy,
         step_scaling_policy,
-        lambda o: target_tracking_policy(o, desired_target=0.60)
+        lambda o: target_tracking_policy(o, desired_target=0.60),
     ]
 
     results_map = {}
@@ -286,5 +336,5 @@ def baselines(difficulty: str = Query("easy"), seed: int = Query(42)):
     return {
         "difficulty": difficulty,
         "seed": seed,
-        "baselines": results_map
+        "baselines": results_map,
     }

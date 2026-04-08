@@ -1,26 +1,32 @@
 """PPO agent builder and loader for Proxima Auto-Scaler."""
 
+from __future__ import annotations
+
 from stable_baselines3 import PPO
-from stable_baselines3.common.env_util import DummyVecEnv
 
 from src.agent.networks import CustomFeatureExtractor
 
+
 def build_ppo(env) -> PPO:
-    """
-    Build and configure the PPO agent according to the design doc hyperparams.
-    
-    Args:
-        env: The CloudAutoScalingEnv (or VecEnv) to train on.
-        
-    Returns:
-        Configured PPO model instance.
+    """Build and configure the PPO agent with design-doc hyperparameters.
+
+    Parameters
+    ----------
+    env
+        The ``CloudAutoScalingEnv`` (or ``VecEnv``-wrapped variant) to
+        train on.
+
+    Returns
+    -------
+    PPO
+        A freshly initialised PPO model ready for ``.learn()``.
     """
     policy_kwargs = dict(
         features_extractor_class=CustomFeatureExtractor,
         features_extractor_kwargs=dict(features_dim=64),
     )
-    
-    model = PPO(
+
+    return PPO(
         policy="MlpPolicy",
         env=env,
         learning_rate=2e-4,
@@ -38,17 +44,23 @@ def build_ppo(env) -> PPO:
         tensorboard_log="./logs/tb",
         verbose=1,
     )
-    return model
+
 
 def load_agent(path: str, env) -> PPO:
-    """
-    Load a trained PPO model.
-    
-    Args:
-        path: Filepath of the stored model checkpoint.
-        env: The CloudAutoScalingEnv (or VecEnv) to evaluate on.
-        
-    Returns:
-        Loaded PPO model ready for inference.
+    """Load a trained PPO model from a checkpoint file.
+
+    Parameters
+    ----------
+    path : str
+        Filepath of the stored model checkpoint (e.g.
+        ``checkpoints/ppo_cloud_final.zip``).
+    env
+        The ``CloudAutoScalingEnv`` (or ``VecEnv``) to attach for
+        inference.
+
+    Returns
+    -------
+    PPO
+        Loaded PPO model ready for ``.predict()``.
     """
     return PPO.load(path, env=env, device="cpu")

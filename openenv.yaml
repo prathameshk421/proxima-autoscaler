@@ -36,11 +36,6 @@ tasks:
     difficulty: hard
     grader: deterministic
 
-training:
-  algorithm: PPO
-  total_timesteps: 1_000_000
-  checkpoint_dir: checkpoints/
-
 deployment:
   framework: fastapi
   entrypoint: app:app

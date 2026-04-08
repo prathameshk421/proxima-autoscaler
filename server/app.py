@@ -1,17 +1,19 @@
-"""server/app.py — OpenEnv server entry point.
+"""Server entry point for Proxima Auto-Scaler.
 
-Re-exports the root FastAPI application and provides the main()
-entry point required by openenv validate.
+Provides the ``serve`` console script and a ``main()`` function
+that launches the FastAPI application via uvicorn.
 """
+
+from __future__ import annotations
 
 import uvicorn
 
-from app import app  # noqa: F401  (re-export for openenv)
+from app import app
 
 
-def main():
-    """Start the Proxima Auto-Scaler API server."""
-    uvicorn.run("app:app", host="0.0.0.0", port=7860)
+def main() -> None:
+    """Launch the Proxima Auto-Scaler API server."""
+    uvicorn.run(app, host="0.0.0.0", port=7860)
 
 
 if __name__ == "__main__":

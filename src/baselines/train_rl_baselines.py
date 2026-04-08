@@ -1,4 +1,12 @@
-"""Training script for RL baselines (DQN, A2C) using the same curriculum as PPO."""
+"""Training script for RL baselines (DQN, A2C) using the same curriculum as PPO.
+
+Trains one or more RL baseline agents through the easy → medium → hard
+curriculum, then saves the best model for each.
+
+Usage::
+
+    python -m src.baselines.train_rl_baselines --agents dqn a2c --seed 42
+"""
 
 from __future__ import annotations
 
@@ -9,52 +17,76 @@ import shutil
 
 import numpy as np
 import torch
-from stable_baselines3.common.callbacks import EvalCallback, CheckpointCallback
+from stable_baselines3.common.callbacks import CheckpointCallback, EvalCallback
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import DummyVecEnv
 
+from src.baselines.rl_baselines import build_a2c, build_dqn
 from src.env.cloud_env import CloudAutoScalingEnv
 from src.env.discrete_action_wrapper import DiscreteActionWrapper
-from src.baselines.rl_baselines import build_dqn, build_a2c
-
 
 CURRICULUM = [
-    ("easy",   150_000),
+    ("easy", 150_000),
     ("medium", 250_000),
-    ("hard",   600_000),
+    ("hard", 600_000),
 ]
 
 
 def _set_seeds(seed: int) -> None:
+    """Set global random seeds for reproducibility."""
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
 
 
-def make_env(difficulty: str, seed: int, discrete: bool = False):
-    """Factory for Monitor-wrapped env, optionally with DiscreteActionWrapper."""
+def make_env(difficulty: str, seed: int, *, discrete: bool = False):
+    """Factory for Monitor-wrapped env, optionally with DiscreteActionWrapper.
+
+    Parameters
+    ----------
+    difficulty : str
+        Environment difficulty tier.
+    seed : int
+        Random seed.
+    discrete : bool
+        Whether to apply the ``DiscreteActionWrapper`` (required for DQN).
+    """
+
     def _thunk():
         env = CloudAutoScalingEnv(difficulty=difficulty, seed=seed)
         if discrete:
             env = DiscreteActionWrapper(env)
         return Monitor(env)
+
     return _thunk
 
 
 def train_agent(agent_name: str, seed: int, log_dir: str) -> None:
-    """Train a single RL baseline through the full curriculum."""
+    """Train a single RL baseline through the full curriculum.
+
+    Parameters
+    ----------
+    agent_name : str
+        Either ``"dqn"`` or ``"a2c"``.
+    seed : int
+        Global random seed.
+    log_dir : str
+        Directory for evaluation logs.
+    """
     _set_seeds(seed)
 
-    discrete = (agent_name == "dqn")
+    discrete = agent_name == "dqn"
     model = None
 
     for phase_idx, (difficulty, num_timesteps) in enumerate(CURRICULUM):
-        print(f"\n{'='*60}")
-        print(f" [{agent_name.upper()}] Phase {phase_idx+1}: '{difficulty}' ({num_timesteps} steps)")
-        print(f"{'='*60}")
+        print(f"\n{'=' * 60}")
+        print(
+            f" [{agent_name.upper()}] Phase {phase_idx + 1}: '{difficulty}' ({num_timesteps} steps)"
+        )
+        print(f"{'=' * 60}")
 
         train_env = DummyVecEnv([make_env(difficulty, seed, discrete=discrete)])
-        eval_env  = DummyVecEnv([make_env(difficulty, 123,  discrete=discrete)])
+        eval_env = DummyVecEnv([make_env(difficulty, 123, discrete=discrete)])
 
         if phase_idx == 0:
             if agent_name == "dqn":
@@ -65,7 +97,7 @@ def train_agent(agent_name: str, seed: int, log_dir: str) -> None:
             model.set_env(train_env)
 
         ckpt_dir = f"checkpoints/{agent_name}/best_{difficulty}"
-        eval_cb  = EvalCallback(
+        eval_cb = EvalCallback(
             eval_env,
             best_model_save_path=ckpt_dir,
             log_path=log_dir,
@@ -87,7 +119,7 @@ def train_agent(agent_name: str, seed: int, log_dir: str) -> None:
         )
 
     best_hard = f"checkpoints/{agent_name}/best_hard/best_model.zip"
-    final     = f"checkpoints/{agent_name}_final.zip"
+    final = f"checkpoints/{agent_name}_final.zip"
     if os.path.exists(best_hard):
         shutil.copy2(best_hard, final)
         print(f"\nDeployed best hard checkpoint → {final}")
@@ -96,20 +128,26 @@ def train_agent(agent_name: str, seed: int, log_dir: str) -> None:
         print(f"\nSaved final model → {final}")
 
 
-def main():
+def main() -> None:
+    """CLI entry-point: parse args and train selected RL baselines."""
     parser = argparse.ArgumentParser(description="Train RL Baselines (DQN, A2C)")
-    parser.add_argument("--agents", nargs="+", default=["dqn", "a2c"],
-                        choices=["dqn", "a2c"], help="Which agents to train")
-    parser.add_argument("--seed",    type=int, default=42)
+    parser.add_argument(
+        "--agents",
+        nargs="+",
+        default=["dqn", "a2c"],
+        choices=["dqn", "a2c"],
+        help="Which agents to train",
+    )
+    parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--log-dir", type=str, default="./logs")
     args = parser.parse_args()
 
     os.makedirs(args.log_dir, exist_ok=True)
 
     for agent_name in args.agents:
-        print(f"\n{'#'*60}")
+        print(f"\n{'#' * 60}")
         print(f" Training {agent_name.upper()} baseline")
-        print(f"{'#'*60}")
+        print(f"{'#' * 60}")
         train_agent(agent_name, args.seed, args.log_dir)
 
     print("\nAll RL baselines trained.")

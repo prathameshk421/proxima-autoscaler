@@ -10,6 +10,8 @@ build/
 
 # IDE / OS
 .DS_Store
+Thumbs.db
+Desktop.ini
 .vscode/
 .idea/
 *.swp
@@ -22,13 +24,36 @@ build/
 .coverage
 htmlcov/
 
-# Project artifacts
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# Training artifacts
+runs/
+lightning_logs/
+wandb/
+tensorboard/
 logs/
-checkpoints_backup_*/
+reports/
+
+# Checkpoints (keep only the final deployed model)
+checkpoints/best_*/
+checkpoints/periodic_*/
+checkpoints/ablation_*/
+checkpoints/dqn/
+checkpoints/a2c/
+checkpoints/*_final.zip
+!checkpoints/ppo_cloud_final.zip
+
+# Generated evaluation outputs
 eval_results.txt
 evaluation_report.json
 workload_test.png
 
+# Problem statement files
+problem_statement_files/
+
 # Secrets
 .env
-.env.*
+!.env.example
