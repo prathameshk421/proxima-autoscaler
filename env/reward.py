@@ -96,8 +96,10 @@ def compute_reward(
 
     # ── 6. Invalid action penalty  ∈ {-0.5, 0.0} ────────────────────────────
     # Penalises attempting a scaling action while still in cooldown.
+    # Uses prev_obs (pre-action state) because a valid action *creates*
+    # cooldown — checking post-action obs would wrongly penalise valid actions.
     invalid_penalty: float = (
-        -0.5 if (obs.cooldown_remaining > 0 and action.mode != "signal") else 0.0
+        -0.5 if (prev_obs.cooldown_remaining > 0 and action.mode != "signal") else 0.0
     )
 
     # ── 7. Capacity signal bonus  ∈ {0.0, 1.0} ──────────────────────────────
@@ -214,9 +216,9 @@ def _run_exit_conditions() -> None:
     _verify_bounds("over-provisioned idle", r)
 
     # ── Scenario 4: scale action during cooldown (invalid) ───────────────────
-    cooling = _obs(cooldown_remaining=2)
+    cooling_prev = _obs(cooldown_remaining=2)  # prev_obs has cooldown active
     action_scale = CloudAction(mode="step", scale_delta=1)
-    r = compute_reward(cooling, action_scale, base_obs,
+    r = compute_reward(base_obs, action_scale, cooling_prev,
                        oscillation_penalty=-0.5, correctly_signaled=False)
     _verify_bounds("scaling during cooldown", r)
 
@@ -227,8 +229,9 @@ def _run_exit_conditions() -> None:
 
     # ── Scenario 6: worst-case (all penalties maxed, no bonus) ───────────────
     worst = _obs(latency_ms=200.0, queue_length=200, request_rate=500.0,
-                 active_servers=1, cooldown_remaining=3)
-    r = compute_reward(worst, action_scale, base_obs,
+                 active_servers=1)
+    worst_prev = _obs(cooldown_remaining=3)  # prev_obs has cooldown active
+    r = compute_reward(worst, action_scale, worst_prev,
                        oscillation_penalty=-1.0, correctly_signaled=False)
     _verify_bounds("worst-case all penalties", r)
 
