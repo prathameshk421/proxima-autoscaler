@@ -387,7 +387,7 @@ curl -X POST "localhost:8000/step?session_id=<uuid>" \
 
 ---
 
-## Phase 6 — Baseline Inference Script (`baseline/inference.py`)
+## Phase 6 — Baseline Inference Script (`inference.py`)
 
 **Goal:** OpenAI-client script, tight system prompt, correct log format.
 
@@ -441,6 +441,9 @@ def call_env(endpoint, method="POST", body=None):
         return json.loads(r.read())
 
 def run_task(task_name: str):
+    if not API_KEY:
+        raise RuntimeError("Missing API key. Set HF_TOKEN or OPENAI_API_KEY.")
+
     client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
 
     # Reset — capture session_id
@@ -463,10 +466,9 @@ def run_task(task_name: str):
             temperature=0.2,
         )
         raw = response.choices[0].message.content.strip()
-        try:
-            action = json.loads(raw)
-        except json.JSONDecodeError:
-            action = {"mode": "step", "scale_delta": 0}
+        action = json.loads(raw)
+        if not isinstance(action, dict):
+            raise ValueError(f"Model returned non-object JSON action: {raw}")
 
         result = call_env(f"step?session_id={session_id}", body=action)
         reward = result.get("reward", 0.0)
@@ -500,7 +502,7 @@ if __name__ == "__main__":
         run_task(task)
 ```
 
-**Exit condition:** `python baseline/inference.py` runs all 3 tasks, produces valid `[END]` lines, scores between 0.0 and 1.0.
+**Exit condition:** `python inference.py` runs all 3 tasks, produces valid `[END]` lines, scores between 0.0 and 1.0.
 
 ---
 
@@ -602,5 +604,5 @@ CMD ["uvicorn", "server.main:app", "--host", "0.0.0.0", "--port", "7860"]
 | 3 | Reward function | `env/reward.py` |
 | 4 | Environment loop | `env/environment.py`, `env/tasks.py` |
 | 5 | HTTP server | `server/main.py`, `server/routers.py` |
-| 6 | Baseline script | `baseline/inference.py` |
+| 6 | Baseline script | `inference.py` |
 | 7 | Ship | `openenv.yaml`, `Dockerfile`, `README.md` |

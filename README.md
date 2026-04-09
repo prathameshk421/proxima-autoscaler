@@ -215,7 +215,7 @@ curl "http://localhost:7860/health"
 export HF_TOKEN=your_token_here
 export ENV_URL=http://localhost:7860
 
-python baseline/inference.py
+python inference.py
 ```
 
 Expected output format:
