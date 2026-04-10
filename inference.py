@@ -136,7 +136,7 @@ def run_task(task_name: str):
             steps_taken = step
 
             print(
-                f"[STEP] step={step} action={json.dumps(action, separators=(",", ":"))} "
+                f"[STEP] step={step} action={json.dumps(action, separators=(',', ':'))} "
                 f"reward={reward:.2f} done={str(done).lower()} error={_format_error(error)}",
                 flush=True,
             )
