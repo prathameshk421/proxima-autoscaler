@@ -6,6 +6,7 @@ No environment logic yet.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import List
 
@@ -18,26 +19,37 @@ STARTUP_DELAY: int = 2          # steps before a new server becomes active
 COOLDOWN_STEPS: int = 3         # steps locked after any scaling action
 MAX_QUEUE: int = 500            # drop requests beyond this
 LATENCY_BASE_MS: float = 10.0
-LATENCY_SCALE: float = 5.0
+STEP_DURATION_SEC: float = 15.0 # seconds per step (matches Kubernetes HPA scrape interval)
+                                # CRITICAL: all rate→count conversions must multiply by this
 
 
-# ── Latency Model (M/D/1 queuing approximation) ─────────────────────────────
+# ── Latency Model (M/M/c Erlang C) ──────────────────────────────────────────
 
-def compute_latency(request_rate: float, capacity: float,
-                    queue_length: int) -> float:
-    """Return estimated latency in ms using a piecewise M/D/1 approximation.
+def compute_mmc_latency(request_rate: float, active_servers: int,
+                        latency_base_ms: float = LATENCY_BASE_MS) -> float:
+    """Return estimated latency in ms using the M/M/c (Erlang C) formula.
 
-    Below 80 % utilization the relationship is roughly linear; above that
-    threshold it grows quadratically to simulate queuing blow-up, with an
-    additional term proportional to queue depth.
+    M/M/c is the industry standard for homogeneous pod/VM clusters.
+    It naturally produces asymptotic latency explosion near 100% utilization.
     """
-    utilization = min(request_rate / max(capacity, 1.0), 1.0)
-    if utilization < 0.8:
-        return LATENCY_BASE_MS + utilization * 20.0
-    overflow = (utilization - 0.8) / 0.2
-    return (LATENCY_BASE_MS + 20.0
-            + overflow ** 2 * 200.0
-            + queue_length * 0.5)
+    c = max(1, min(active_servers, 15))   # cap at 15 — prevents factorial overflow
+    mu = float(SERVER_CAPACITY)            # service rate per server (req/s)
+    rho = request_rate / (c * mu)         # system utilization factor
+
+    # Overload state: theoretical latency → ∞, return timeout cap
+    if rho >= 0.99:
+        return latency_base_ms + 15000.0
+
+    # Erlang C formula: probability that a request must wait
+    crho = c * rho
+    numerator = (crho ** c) / (math.factorial(c) * (1 - rho))
+    sum_k = sum((crho ** k) / math.factorial(k) for k in range(c))
+    p_wait = numerator / (sum_k + numerator)
+
+    # Expected wait time in queue: seconds → milliseconds
+    wait_time_ms = (p_wait / (c * mu * (1 - rho))) * 1000.0
+
+    return latency_base_ms + wait_time_ms
 
 
 # ── WorkloadGenerator ────────────────────────────────────────────────────────
@@ -46,87 +58,61 @@ class WorkloadGenerator:
     """Pre-generates a deterministic workload trajectory for a given profile.
 
     Supported profiles:
-        - ``smooth``       – sinusoidal with small Gaussian noise.
-        - ``fluctuating``  – smooth + moderate noise.
-        - ``spiky``        – fluctuating + random burst events.
+        - ``smooth``       – Non-Stationary Poisson Process (pure sinusoidal rate).
+        - ``fluctuating``  – Poisson with lognormal rate multiplier (right-skewed).
+        - ``spiky``        – fluctuating + Pareto burst events.
 
     The full trajectory is computed in ``__init__`` so that ``get(step)`` is
     order-independent and fully reproducible given the same *seed*.
+
+    Critical: ALL numpy RNG calls happen inside ``__init__`` using vectorized
+    array operations. The seeded ``rng`` is consumed in exactly the same order
+    every time ``reset()`` re-creates the generator — guaranteeing determinism.
     """
 
     VALID_PROFILES = ("smooth", "fluctuating", "spiky")
 
-    def __init__(
-        self,
-        profile: str,
-        seed: int,
-        max_steps: int,
-        spike_probability: float = 0.0,
-    ) -> None:
-        if profile not in self.VALID_PROFILES:
-            raise ValueError(
-                f"Unknown profile '{profile}'. "
-                f"Choose from {self.VALID_PROFILES}."
-            )
+    def __init__(self, profile: str, seed: int, max_steps: int,
+                 base_amp: float = 300.0, period: int = 50,
+                 spike_probability: float = 0.0):  # spike_probability kept for API compat, ignored
         rng = np.random.default_rng(seed)
-        self._profile = profile
-        self._max_steps = max_steps
-        self._workload: np.ndarray = self._generate(
-            rng, profile, max_steps, spike_probability,
-        )
+        t = np.arange(max_steps)
 
-    # ── public API ───────────────────────────────────────────────────────
+        # Base diurnal cycle — sinusoidal, always
+        lambda_t = base_amp * np.sin(2 * np.pi * t / period) + base_amp
+        lambda_t = np.maximum(10.0, lambda_t)   # minimum traffic floor
+
+        if profile == "smooth":
+            # Pure Non-Stationary Poisson Process
+            self._workload = rng.poisson(lambda_t).astype(float)
+
+        elif profile == "fluctuating":
+            # Lognormal multiplier: right-skewed, never negative
+            lognormal_multipliers = rng.lognormal(mean=0.0, sigma=0.25, size=max_steps)
+            lambda_noisy = lambda_t * lognormal_multipliers
+            self._workload = rng.poisson(lambda_noisy).astype(float)
+
+        elif profile == "spiky":
+            lognormal_multipliers = rng.lognormal(mean=0.0, sigma=0.25, size=max_steps)
+            lambda_noisy = lambda_t * lognormal_multipliers
+            base = rng.poisson(lambda_noisy).astype(float)
+            # Pareto spikes: 2% probability, alpha=2.0, capped at 10x base_amp
+            spike_mask = rng.random(size=max_steps) < 0.02
+            spike_multipliers = np.minimum(rng.pareto(a=2.0, size=max_steps), 10.0)
+            spikes = (spike_mask * base_amp * spike_multipliers).astype(float)
+            self._workload = base + spikes
+
+        else:
+            # Fallback — treat as smooth
+            self._workload = rng.poisson(lambda_t).astype(float)
 
     def get(self, step: int) -> float:
-        """Return the workload value (req/s) for the given *step*."""
-        if step < 0 or step >= self._max_steps:
-            raise IndexError(
-                f"step {step} out of range [0, {self._max_steps})."
-            )
         return float(self._workload[step])
 
     @property
     def trajectory(self) -> np.ndarray:
         """Full pre-generated workload array (read-only copy)."""
         return self._workload.copy()
-
-    # ── internal generation ──────────────────────────────────────────────
-
-    @staticmethod
-    def _generate(
-        rng: np.random.Generator,
-        profile: str,
-        max_steps: int,
-        spike_probability: float,
-    ) -> np.ndarray:
-        t = np.arange(max_steps, dtype=np.float64)
-
-        # Base sinusoidal signal: amplitude A, period T
-        A = 200.0      # peak amplitude
-        T = max_steps   # one full cycle over the episode
-
-        base = A * np.sin(2.0 * np.pi * t / T) + A  # range ≈ [0, 2A]
-
-        # Small Gaussian noise (smooth profile)
-        epsilon = rng.normal(0.0, 5.0, size=max_steps)
-        smooth = base + epsilon
-
-        if profile == "smooth":
-            return np.clip(smooth, 0.0, None)
-
-        # Moderate noise (fluctuating profile)
-        moderate_noise = rng.normal(0.0, 30.0, size=max_steps)
-        fluctuating = smooth + moderate_noise
-
-        if profile == "fluctuating":
-            return np.clip(fluctuating, 0.0, None)
-
-        # Burst events (spiky profile)
-        spike_mask = rng.random(max_steps) < spike_probability
-        spike_magnitudes = rng.uniform(150.0, 400.0, size=max_steps)
-        spiky = fluctuating + spike_mask * spike_magnitudes
-
-        return np.clip(spiky, 0.0, None)
 
 
 # ── ServerPool ───────────────────────────────────────────────────────────────

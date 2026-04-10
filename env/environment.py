@@ -1,5 +1,5 @@
 """
-Phase 4 — Environment Class
+Phase 4 — Environment Class (v3.0)
 
 Full ``reset / step / state`` loop for the Cloud Auto-Scaling OpenEnv.
 Integrates the workload generator, server pool, latency model, and reward
@@ -7,18 +7,17 @@ function into a single coherent game loop.
 
 Critical design notes
 ---------------------
-* **Queue drain** — ``total_demand = request_rate + queue`` ensures queued
-  requests are *served*, not silently dropped.
-* **Target-utilization math** — ``ceil(rate / (target_util * cap))`` keeps
-  dimensionality correct (servers, not utilization fractions).
-* **Oscillation tracking** — zeros are filtered out before checking sign
-  changes so that idle steps don't artificially suppress the penalty.
+* **Queue drain** — Lindley's recurrence converts rate (req/s) to arrivals
+  per step using ``STEP_DURATION_SEC``, ensuring dimensional correctness.
+* **Target-utilization math** — HPA-style ratio scaling with ±10% deadband
+  prevents micro-scaling from workload noise.
+* **Stability** — L2 action delta penalty in ``reward.py`` replaces the
+  old oscillation-detection deque.
 """
 
 from __future__ import annotations
 
 import math
-from collections import deque
 from typing import Optional
 
 from env.models import CloudAction, CloudObservation, StepResult
@@ -26,9 +25,10 @@ from env.reward import compute_reward
 from env.simulation import (
     MAX_QUEUE,
     SERVER_CAPACITY,
+    STEP_DURATION_SEC,
     ServerPool,
     WorkloadGenerator,
-    compute_latency,
+    compute_mmc_latency,
 )
 from env.tasks import TASKS, TaskConfig
 
@@ -83,9 +83,6 @@ class CloudAutoScalingEnv:
         # ── 1. Dispatch action ───────────────────────────────────────────
         actual_delta = self._apply_action(action)
 
-        # Track scaling history for oscillation detection
-        self._scale_history.append(actual_delta)
-
         # ── 2. Advance step counter ─────────────────────────────────────
         self._step += 1
 
@@ -97,32 +94,32 @@ class CloudAutoScalingEnv:
         # ── 4. Tick server pool (pending → active) ──────────────────────
         self._server_pool.tick(self._step)
 
-        # ── 5. Drain queue ──────────────────────────────────────────────
-        total_demand = self._request_rate + self._queue
-        capacity = self._server_pool.effective_capacity
-        fulfilled = min(total_demand, capacity)
-        self._queue = max(0, int(total_demand - fulfilled))
-        self._queue = min(self._queue, MAX_QUEUE)
+        # ── 5. Drain queue (Lindley's Recurrence) ─────────────────────
+        # request_rate is req/s, must be converted to arrivals per step
+        arrivals       = int(self._request_rate * STEP_DURATION_SEC)
+        capacity_count = int(self._server_pool.active * SERVER_CAPACITY * STEP_DURATION_SEC)
+        total_demand   = self._queue + arrivals
+        fulfilled      = min(total_demand, capacity_count)
+        new_queue      = max(0, total_demand - fulfilled)
+        dropped        = max(0, new_queue - MAX_QUEUE)       # requests lost to buffer overflow
+        self._queue    = min(new_queue, MAX_QUEUE)
+        utilization    = fulfilled / capacity_count if capacity_count > 0 else 1.0
 
         # ── 6. Utilization & latency ────────────────────────────────────
-        self._utilization = min(
-            self._request_rate / max(capacity, 1.0), 1.0
-        )
-        self._latency_ms = compute_latency(
-            self._request_rate, capacity, self._queue,
+        self._utilization = utilization
+        self._latency_ms = compute_mmc_latency(
+            self._request_rate, self._server_pool.active,
         )
 
         # ── 7. Signal correctness check ─────────────────────────────────
         correctly_signaled = self._check_signal(action)
 
-        # ── 8. Reward ───────────────────────────────────────────────────
+        # ── 8. Reward ───────────────────────────────────────────────
         obs = self._build_observation()
-        osc_pen = self._oscillation_penalty()
         reward_result = compute_reward(
             obs=obs,
             action=action,
-            prev_obs=prev_obs,
-            oscillation_penalty=osc_pen,
+            prev_delta=action.scale_delta,
             correctly_signaled=correctly_signaled,
         )
 
@@ -154,9 +151,6 @@ class CloudAutoScalingEnv:
         self._queue: int = 0
         self._target_utilization: float = 0.6
 
-        # Scale history for oscillation detection (zero-aware)
-        self._scale_history: deque = deque(maxlen=4)
-
         # Workload generator (deterministic)
         self._workload = WorkloadGenerator(
             profile=task.profile,
@@ -174,12 +168,11 @@ class CloudAutoScalingEnv:
         )
 
         # Derived metrics (initial values)
-        capacity = self._server_pool.effective_capacity
         self._utilization: float = min(
-            self._request_rate / max(capacity, 1.0), 1.0
+            self._request_rate / max(self._server_pool.effective_capacity, 1.0), 1.0
         )
-        self._latency_ms: float = compute_latency(
-            self._request_rate, capacity, self._queue,
+        self._latency_ms: float = compute_mmc_latency(
+            self._request_rate, self._server_pool.active,
         )
 
     def _apply_action(self, action: CloudAction) -> int:
@@ -190,18 +183,16 @@ class CloudAutoScalingEnv:
             )
 
         elif action.mode == "target":
-            # Compute required servers to meet the utilization target
+            # HPA-style ratio scaling with 10% tolerance deadband
+            # Prevents micro-scaling from noise — matches Kubernetes HPA behavior
             target_util = max(min(action.target_utilization, 0.95), 0.1)
             self._target_utilization = target_util
-            required_servers = math.ceil(
-                self._request_rate / (target_util * SERVER_CAPACITY)
-            )
-            # Clamp to valid range
-            required_servers = max(
-                self._task.min_servers,
-                min(required_servers, self._task.max_servers),
-            )
-            delta = required_servers - self._server_pool.active
+            ratio = self._utilization / target_util   # use current utilization
+            if 0.9 <= ratio <= 1.1:
+                delta = 0   # within deadband — no action
+            else:
+                desired = math.ceil(self._server_pool.active * ratio)
+                delta = desired - self._server_pool.active
             return self._server_pool.apply_action(delta, self._step)
 
         elif action.mode == "signal":
@@ -224,20 +215,6 @@ class CloudAutoScalingEnv:
         overloaded = self._utilization > 0.95
         return at_max and overloaded
 
-    def _oscillation_penalty(self) -> float:
-        """Compute oscillation penalty from recent scale history.
-
-        Zeros (no-ops) are filtered before checking sign changes so that
-        idle steps do not suppress the penalty.
-        """
-        nonzero = [x for x in self._scale_history if x != 0]
-        if len(nonzero) < 2:
-            return 0.0
-        sign_changes = sum(
-            1 for a, b in zip(nonzero, nonzero[1:])
-            if (a > 0) != (b > 0)
-        )
-        return -0.5 if sign_changes >= 3 else 0.0
 
     def _build_observation(self) -> CloudObservation:
         """Construct the current observation snapshot."""
