@@ -259,6 +259,15 @@ curl "http://localhost:7860/health"
 
 ## Running the Baseline
 
+Environment setup (recommended):
+
+```bash
+cp .env.example .env
+# edit .env and set HF_TOKEN (and other values if needed)
+```
+
+`inference.py` auto-loads `.env` via `python-dotenv`, so explicit `export` commands are optional.
+
 Heuristic mode (recommended for reproducible local/HF validation, no token required):
 
 ```bash

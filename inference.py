@@ -1,6 +1,7 @@
 import json
 import os
 
+from dotenv import load_dotenv
 from openai import OpenAI
 
 
@@ -28,6 +29,10 @@ Decision rules (apply in order):
 
 Output ONLY the JSON object. No markdown, no explanation.
 """
+
+
+# Load local .env when present so baseline runs without manual exports.
+load_dotenv()
 
 
 API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
