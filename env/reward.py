@@ -15,11 +15,11 @@ Bounds summary
   latency_penalty      ∈ [-2.0, 0.0]
   cost_penalty         ∈ [-0.5, 0.0]
   queue_penalty        ∈ [-1.0, 0.0]
-  oscillation_penalty  ∈ [-1.0, 0.0]  (caller-supplied, must honour bound)
+    oscillation_penalty  ∈ [-0.5, 0.0]  (caller-supplied, must honour bound)
   invalid_penalty      ∈ {-0.5, 0.0}
   signal_bonus         ∈ { 0.0, 1.0}
   ─────────────────────────────────────
-  total                ∈ [-5.0, 2.0]
+    total                ∈ [-3.5, 2.0]
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ from env.simulation import SERVER_CAPACITY
 
 # ── Public constant ──────────────────────────────────────────────────────────
 
-REWARD_RANGE: tuple[float, float] = (-5.0, 2.0)
+REWARD_RANGE: tuple[float, float] = (-3.5, 2.0)
 
 
 # ── Core function ─────────────────────────────────────────────────────────────
@@ -39,7 +39,7 @@ def compute_reward(
     obs: CloudObservation,
     action: CloudAction,
     prev_obs: CloudObservation,           # reserved for future delta-based terms
-    oscillation_penalty: float,           # pre-computed by caller ∈ [-1.0, 0.0]
+    oscillation_penalty: float,           # pre-computed by caller ∈ [-0.5, 0.0]
     correctly_signaled: bool,
 ) -> CloudReward:
     """Compute the step reward for the Proxima autoscaler environment.
@@ -54,7 +54,7 @@ def compute_reward(
         Observation from the *previous* step (kept for future delta terms).
     oscillation_penalty:
         Caller-computed penalty for rapid scale-up/down oscillation.
-        Must lie in ``[-1.0, 0.0]``.
+        Must lie in ``[-0.5, 0.0]``.
     correctly_signaled:
         ``True`` when the agent issued an ``INSUFFICIENT_CAPACITY`` signal
         at the right moment; ``False`` otherwise.
@@ -87,11 +87,11 @@ def compute_reward(
     # Linearly proportional to queue depth up to 100 requests; clamps thereafter.
     queue_penalty: float = -min(obs.queue_length / 100.0, 1.0) * 1.0
 
-    # ── 5. Oscillation penalty  ∈ [-1.0, 0.0]  (caller-supplied) ────────────
+    # ── 5. Oscillation penalty  ∈ [-0.5, 0.0]  (caller-supplied) ────────────
     # Validated here so that any caller bug is caught early.
-    if not (-1.0 <= oscillation_penalty <= 0.0):
+    if not (-0.5 <= oscillation_penalty <= 0.0):
         raise ValueError(
-            f"oscillation_penalty must be in [-1.0, 0.0], got {oscillation_penalty!r}"
+            f"oscillation_penalty must be in [-0.5, 0.0], got {oscillation_penalty!r}"
         )
 
     # ── 6. Invalid action penalty  ∈ {-0.5, 0.0} ────────────────────────────
@@ -105,7 +105,7 @@ def compute_reward(
     # ── 7. Capacity signal bonus  ∈ {0.0, 1.0} ──────────────────────────────
     signal_bonus: float = 1.0 if correctly_signaled else 0.0
 
-    # ── Total  ∈ [-5.0, 2.0] ─────────────────────────────────────────────────
+    # ── Total  ∈ [-3.5, 2.0] ─────────────────────────────────────────────────
     total = (
         throughput_reward
         + latency_penalty
@@ -140,7 +140,7 @@ def _verify_bounds(label: str, reward: CloudReward) -> None:
         "latency":     (-2.0, 0.0),
         "cost":        (-0.5, 0.0),
         "queue":       (-1.0, 0.0),
-        "oscillation": (-1.0, 0.0),
+        "oscillation": (-0.5, 0.0),
         "invalid":     (-0.5, 0.0),
         "signal":      (0.0, 1.0),
     }
@@ -205,7 +205,7 @@ def _run_exit_conditions() -> None:
     overloaded = _obs(latency_ms=200.0, queue_length=150, request_rate=500.0,
                       active_servers=2)
     r = compute_reward(overloaded, action_normal, base_obs,
-                       oscillation_penalty=-1.0, correctly_signaled=False)
+                       oscillation_penalty=-0.5, correctly_signaled=False)
     _verify_bounds("overloaded system", r)
 
     # ── Scenario 3: over-provisioned, idle ───────────────────────────────────
@@ -232,7 +232,7 @@ def _run_exit_conditions() -> None:
                  active_servers=1)
     worst_prev = _obs(cooldown_remaining=3)  # prev_obs has cooldown active
     r = compute_reward(worst, action_scale, worst_prev,
-                       oscillation_penalty=-1.0, correctly_signaled=False)
+                       oscillation_penalty=-0.5, correctly_signaled=False)
     _verify_bounds("worst-case all penalties", r)
 
     # ── Scenario 7: best-case (all bonuses, no penalties) ────────────────────

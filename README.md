@@ -1,3 +1,14 @@
+---
+title: Cloud Autoscaling OpenEnv
+sdk: docker
+app_port: 7860
+tags:
+  - openenv
+  - cloud
+  - autoscaling
+  - reinforcement-learning
+---
+
 # 🖥️ Cloud Auto-Scaling OpenEnv
 
 An [OpenEnv](https://huggingface.co/openenv)-compliant reinforcement learning environment that simulates intelligent cloud infrastructure auto-scaling. An RL or LLM agent observes real-time system metrics and decides how to provision servers — balancing latency, cost, and stability under dynamic workloads.
@@ -105,13 +116,13 @@ score = (sum_rewards - worst_possible) / (best_possible - worst_possible)
 
 ## Baseline Scores
 
-Scores from the LLM baseline agent (Qwen2.5-72B-Instruct via HuggingFace router):
+Scores from the deterministic heuristic baseline (`POLICY_MODE=heuristic`) against local API:
 
 | Task | Score |
 |------|-------|
-| easy | TBD |
-| medium | TBD |
-| hard | TBD |
+| easy | 0.374 |
+| medium | 0.348 |
+| hard | 0.204 |
 
 ---
 
@@ -134,9 +145,13 @@ uvicorn server.main:app --reload --port 7860
 ### Docker
 
 ```bash
-docker build -t cloud-autoscaling-openenv .
-docker run -p 7860:7860 cloud-autoscaling-openenv
+docker build -t cloud-env .
+docker run -p 7860:7860 cloud-env
 ```
+
+### OpenEnv Metadata
+
+The OpenEnv spec for this environment is defined in `openenv.yaml` at repository root.
 
 ### Hugging Face Space
 
@@ -146,6 +161,39 @@ Set the following environment variables in your Space settings:
 - `API_BASE_URL` — LLM inference endpoint (default: `https://router.huggingface.co/v1`)
 - `MODEL_NAME` — Model to use (default: `Qwen/Qwen2.5-72B-Instruct`)
 - `HF_TOKEN` — Your HuggingFace token
+
+In your Space metadata, include the `openenv` tag.
+
+---
+
+## Deploy Checklist
+
+1. Build and run the container locally:
+
+```bash
+docker build -t cloud-env . && docker run -p 7860:7860 cloud-env
+```
+
+2. Verify health endpoint:
+
+```bash
+curl http://localhost:7860/health
+# {"status":"ok"}
+```
+
+3. Run baseline against localhost and record scores:
+
+```bash
+POLICY_MODE=heuristic ENV_URL=http://localhost:7860 python inference.py
+```
+
+4. Push to Hugging Face Spaces with `openenv` in Space metadata tags.
+
+5. Run baseline against live Space and compare with local scores:
+
+```bash
+POLICY_MODE=heuristic ENV_URL=https://<your-space>.hf.space python inference.py
+```
 
 ---
 
@@ -211,9 +259,20 @@ curl "http://localhost:7860/health"
 
 ## Running the Baseline
 
+Heuristic mode (recommended for reproducible local/HF validation, no token required):
+
+```bash
+export POLICY_MODE=heuristic
+export ENV_URL=http://localhost:7860
+python inference.py
+```
+
+LLM mode (Qwen via Hugging Face router):
+
 ```bash
 export HF_TOKEN=your_token_here
 export ENV_URL=http://localhost:7860
+export POLICY_MODE=llm
 
 python inference.py
 ```

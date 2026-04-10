@@ -34,12 +34,30 @@ API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
 MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
 API_KEY = os.getenv("HF_TOKEN") or os.getenv("OPENAI_API_KEY", "")
 ENV_URL = os.getenv("ENV_URL", "http://localhost:7860")
+POLICY_MODE = os.getenv("POLICY_MODE", "auto").strip().lower()
 
 
 def _format_error(error_value):
     if not error_value:
         return "null"
     return str(error_value).replace("\n", "\\n").replace("\r", "\\r")
+
+
+def _heuristic_action(obs: dict) -> dict:
+    cooldown = int(obs.get("cooldown_remaining", 0) or 0)
+    active = int(obs.get("active_servers", 1) or 1)
+    max_servers = int(obs.get("max_servers", 1) or 1)
+    utilization = float(obs.get("utilization", 0.0) or 0.0)
+
+    if cooldown > 0:
+        return {"mode": "signal", "signal_type": None}
+    if active >= max_servers and utilization > 0.95:
+        return {"mode": "signal", "signal_type": "INSUFFICIENT_CAPACITY"}
+    if utilization > 0.85 and active < max_servers:
+        return {"mode": "step", "scale_delta": 2}
+    if utilization < 0.4 and active > 1:
+        return {"mode": "step", "scale_delta": -1}
+    return {"mode": "step", "scale_delta": 0}
 
 
 def call_env(endpoint, method="POST", body=None):
@@ -64,34 +82,41 @@ def run_task(task_name: str):
     obs = None
     steps_taken = 0
 
-    print(f"[START] task={task_name} env=cloud-autoscaling model={MODEL_NAME}", flush=True)
+    use_llm = POLICY_MODE == "llm" or (POLICY_MODE == "auto" and bool(API_KEY))
+    policy_name = MODEL_NAME if use_llm else "heuristic-rule"
+
+    print(f"[START] task={task_name} env=cloud-autoscaling model={policy_name}", flush=True)
 
     try:
-        if not API_KEY:
+        if POLICY_MODE not in {"auto", "llm", "heuristic"}:
+            raise RuntimeError("POLICY_MODE must be one of: auto, llm, heuristic")
+        if POLICY_MODE == "llm" and not API_KEY:
             raise RuntimeError("Missing API key. Set HF_TOKEN or OPENAI_API_KEY.")
 
-        client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
+        client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY) if use_llm else None
 
         reset_resp = call_env(f"reset?task={task_name}")
         session_id = reset_resp["session_id"]
         obs = reset_resp["observation"]
 
         for step in range(1, 101):
-            user_msg = f"Current state:\n{json.dumps(obs, indent=2)}\n\nOutput your action JSON:"
-
-            response = client.chat.completions.create(
-                model=MODEL_NAME,
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": user_msg},
-                ],
-                max_tokens=100,
-                temperature=0.2,
-            )
-            raw = (response.choices[0].message.content or "").strip()
-            action = json.loads(raw)
-            if not isinstance(action, dict):
-                raise ValueError(f"Model returned non-object JSON action: {raw}")
+            if use_llm:
+                user_msg = f"Current state:\n{json.dumps(obs, indent=2)}\n\nOutput your action JSON:"
+                response = client.chat.completions.create(
+                    model=MODEL_NAME,
+                    messages=[
+                        {"role": "system", "content": SYSTEM_PROMPT},
+                        {"role": "user", "content": user_msg},
+                    ],
+                    max_tokens=100,
+                    temperature=0.2,
+                )
+                raw = (response.choices[0].message.content or "").strip()
+                action = json.loads(raw)
+                if not isinstance(action, dict):
+                    raise ValueError(f"Model returned non-object JSON action: {raw}")
+            else:
+                action = _heuristic_action(obs)
 
             result = call_env(f"step?session_id={session_id}", body=action)
             reward = float(result.get("reward", 0.0))

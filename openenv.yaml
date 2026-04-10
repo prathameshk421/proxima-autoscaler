@@ -1,0 +1,41 @@
+name: cloud-autoscaling
+version: "1.0.0"
+description: >
+  Intelligent cloud auto-scaling environment where an RL/LLM agent
+  learns to provision servers under dynamic workloads.
+tasks:
+  - name: easy
+    description: Predictable sinusoidal workload
+    difficulty: easy
+  - name: medium
+    description: Fluctuating noisy workload
+    difficulty: medium
+  - name: hard
+    description: Spiky workload with capacity saturation events
+    difficulty: hard
+observation_space:
+  type: object
+  fields:
+    - active_servers: int
+    - max_servers: int
+    - request_rate: float
+    - utilization: float
+    - queue_length: int
+    - latency_ms: float
+    - target_utilization: float
+    - cooldown_remaining: int
+    - step_number: int
+    - done: bool
+action_space:
+  type: object
+  fields:
+    - mode: "step | target | signal"
+    - scale_delta: int
+    - target_utilization: float
+    - signal_type: "INSUFFICIENT_CAPACITY | null"
+reward_range: [-3.5, 2.0]
+tags:
+  - openenv
+  - cloud
+  - autoscaling
+  - reinforcement-learning
