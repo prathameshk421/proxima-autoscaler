@@ -27,7 +27,7 @@ An agent receives system observations every step (request rate, utilization, que
 
 - **Observation:** System metrics snapshot at each timestep
 - **Action:** Scale up/down by step, target a utilization level, or signal capacity exhaustion
-- **Reward:** Multi-term shaped reward (latency + throughput + cost + queue + stability)
+- **Reward:** Multi-term shaped reward (throughput + SLO penalty + cost + queue + stability)
 - **Episodes:** 50–100 steps depending on task difficulty
 - **Determinism:** All tasks are seeded — same seed always produces the same workload
 
@@ -76,14 +76,14 @@ Total reward per step is the sum of the following terms:
 | Term | Range | Description |
 |------|-------|-------------|
 | Throughput reward | `[0, +1.0]` | Fraction of demand being served |
-| Latency penalty | `[-2.0, 0]` | Penalty when p99 latency exceeds 50ms |
+| SLO penalty | `[-15.0, 0]` | Exponential penalty when p99 latency exceeds SLO Target (100ms) |
 | Cost penalty | `[-0.5, 0]` | Penalty for idle over-provisioned capacity |
 | Queue penalty | `[-1.0, 0]` | Penalty proportional to queue depth |
-| Oscillation penalty | `[-0.5, 0]` | Penalty for rapidly flipping scale direction |
+| Stability penalty | `[-0.2, 0]` | L2 norm penalty for scale delta to discourage thrashing |
 | Invalid action penalty | `[-0.5, 0]` | Penalty for scaling during cooldown |
 | Signal bonus | `[0, +1.0]` | Bonus for correctly signaling capacity exhaustion |
 
-**Total reward range:** `[-3.5, +2.0]` per step
+**Total reward range:** `[-5.0, +2.0]` per step (clipped)
 
 **Episode score (0.0–1.0):**
 ```
@@ -120,9 +120,9 @@ Scores from the deterministic heuristic baseline (`POLICY_MODE=heuristic`) again
 
 | Task | Score |
 |------|-------|
-| easy | 0.374 |
-| medium | 0.348 |
-| hard | 0.204 |
+| easy | 0.168 |
+| medium | 0.061 |
+| hard | 0.143 |
 
 ---
 
@@ -303,8 +303,9 @@ Expected output format:
 - **Server startup delay:** 2 steps (new servers aren't instantly available)
 - **Cooldown:** 3 steps after any scaling action before the next is allowed
 - **Queue capacity:** 500 requests max — overflow is dropped
-- **Latency model:** M/D/1 queuing approximation with non-linear blow-up above 80% utilization
+- **Latency model:** M/M/c (Erlang C) queuing formula with realistic latency explosion near 100% utilization
 - **Server capacity:** 100 req/s per server
+- **Time step:** Each step represents 15 seconds (matching Kubernetes HPA scrape intervals)
 
 ---
 

@@ -1,7 +1,7 @@
-# Cloud Auto-Scaling OpenEnv — Implementation Plan v2.0
+# Cloud Auto-Scaling OpenEnv — Implementation Plan v3.0
 
 > **Hackathon:** Scaler School of Technology × Meta-PyTorch
-> **Repo state:** Empty branch — start from scratch
+> **Repo state:** Fully implemented v3.0
 > **Stack:** Python · FastAPI · NumPy · Docker · Hugging Face Spaces · OpenAI-compatible client
 > **Structure:** Phase-based (each phase = separate chat)
 
@@ -10,6 +10,8 @@
 ## 0. TL;DR
 
 A fully compliant **OpenEnv environment** simulating cloud auto-scaling. Agent observes system metrics, picks a scaling action, receives shaped reward balancing cost vs. latency vs. stability. Three deterministic tasks, UUID-based session management, baseline LLM inference script, deployed to HF Spaces as a containerized FastAPI app.
+
+**v3.0 key upgrades:** Poisson+lognormal+Pareto workloads, M/M/c Erlang C latency model, exponential SLO penalty, L2 stability penalty, Lindley's queue recursion, HPA-style ratio scaling with deadband.
 
 ---
 
@@ -130,36 +132,73 @@ class StepResult(BaseModel):
 
 ## Phase 2 — Simulation Core (`env/simulation.py`)
 
-**Goal:** Deterministic workload generator and server pool. No environment logic yet.
+**Goal:** Deterministic workload generator, server pool, and latency model. No environment logic yet.
 
 ### Constants
 
 ```python
-SERVER_CAPACITY = 100   # req/s per server
-STARTUP_DELAY   = 2     # steps before new server is live
-COOLDOWN_STEPS  = 3     # steps locked after any scaling action
-MAX_QUEUE       = 500   # drop requests beyond this
-LATENCY_BASE_MS = 10.0
-LATENCY_SCALE   = 5.0
+SERVER_CAPACITY   = 100     # req/s per server
+STARTUP_DELAY     = 2       # steps before new server is live
+COOLDOWN_STEPS    = 3       # steps locked after any scaling action
+MAX_QUEUE         = 500     # drop requests beyond this
+LATENCY_BASE_MS   = 10.0    # minimum baseline latency
+STEP_DURATION_SEC = 15.0    # seconds per step (matches Kubernetes HPA scrape interval)
+                            # CRITICAL: all rate→count conversions must multiply by this
 ```
 
-### WorkloadGenerator
+> **v3.0 change:** Added `STEP_DURATION_SEC = 15.0`. Removed unused `LATENCY_SCALE`.
+
+### WorkloadGenerator (v3.0 — Poisson + Lognormal + Pareto)
+
+**Why the change:** v2.0 used Gaussian noise (`randn()`), which produces symmetric variance and allows negative rates. Real cloud traffic is discrete arrivals drawn from a Poisson process. Lognormal rate variance produces right-skewed spikes matching Alibaba/Google cluster traces.
+
+**Critical design rule:** ALL numpy RNG calls must happen inside `__init__` using vectorized array operations. Never call `rng` inside `get()`. The seeded `rng` must be consumed in exactly the same order every time `reset()` re-creates the generator — this guarantees determinism.
 
 Three profiles, seeded NumPy RNG, **pre-generate entire trajectory in `__init__`** so step order doesn't matter:
 
-| Profile | Description |
-|---------|-------------|
-| `smooth` | `A·sin(2π·t/T) + A + ε` |
-| `fluctuating` | smooth + moderate noise |
-| `spiky` | fluctuating + burst events at spike_probability |
+| Profile | Generation Method |
+|---------|-------------------|
+| `smooth` | Non-Stationary Poisson Process: `rng.poisson(λ(t))` where `λ(t) = A·sin(2π·t/T) + A` |
+| `fluctuating` | Poisson with lognormal multiplier: `rng.poisson(λ(t) · lognormal(0, 0.25))` |
+| `spiky` | fluctuating + Pareto bursts: 2% probability, α=2.0, capped at 10× base amplitude |
 
 ```python
 class WorkloadGenerator:
+    VALID_PROFILES = ("smooth", "fluctuating", "spiky")
+
     def __init__(self, profile: str, seed: int, max_steps: int,
-                 spike_probability: float = 0.0):
+                 base_amp: float = 300.0, period: int = 50,
+                 spike_probability: float = 0.0):  # spike_probability kept for API compat, ignored
         rng = np.random.default_rng(seed)
-        # pre-generate and cache full trajectory
-        self._workload = self._generate(rng, profile, max_steps, spike_probability)
+        t = np.arange(max_steps)
+
+        # Base diurnal cycle — sinusoidal, always
+        lambda_t = base_amp * np.sin(2 * np.pi * t / period) + base_amp
+        lambda_t = np.maximum(10.0, lambda_t)   # minimum traffic floor
+
+        if profile == "smooth":
+            # Pure Non-Stationary Poisson Process
+            self._workload = rng.poisson(lambda_t).astype(float)
+
+        elif profile == "fluctuating":
+            # Lognormal multiplier: right-skewed, never negative
+            lognormal_multipliers = rng.lognormal(mean=0.0, sigma=0.25, size=max_steps)
+            lambda_noisy = lambda_t * lognormal_multipliers
+            self._workload = rng.poisson(lambda_noisy).astype(float)
+
+        elif profile == "spiky":
+            lognormal_multipliers = rng.lognormal(mean=0.0, sigma=0.25, size=max_steps)
+            lambda_noisy = lambda_t * lognormal_multipliers
+            base = rng.poisson(lambda_noisy).astype(float)
+            # Pareto spikes: 2% probability, alpha=2.0, capped at 10x base_amp
+            spike_mask = rng.random(size=max_steps) < 0.02
+            spike_multipliers = np.minimum(rng.pareto(a=2.0, size=max_steps), 10.0)
+            spikes = (spike_mask * base_amp * spike_multipliers).astype(float)
+            self._workload = base + spikes
+
+        else:
+            # Fallback — treat as smooth
+            self._workload = rng.poisson(lambda_t).astype(float)
 
     def get(self, step: int) -> float:
         return float(self._workload[step])
@@ -183,16 +222,39 @@ class ServerPool:
         return self.active * SERVER_CAPACITY
 ```
 
-### Latency Model (M/D/1 queuing approximation)
+### Latency Model (v3.0 — M/M/c Erlang C)
+
+**Why the change:** v2.0 used an M/D/1 model with a piecewise quadratic approximation. This assumed a single server with deterministic service times — wrong for a parallel pod/VM cluster. M/M/c (Erlang C formula) is the industry standard for homogeneous server pools. It naturally produces asymptotic latency explosion near 100% utilization — no fake quadratic penalty needed.
 
 ```python
-def compute_latency(request_rate, capacity, queue_length) -> float:
-    utilization = min(request_rate / max(capacity, 1), 1.0)
-    if utilization < 0.8:
-        return LATENCY_BASE_MS + utilization * 20
-    overflow = (utilization - 0.8) / 0.2
-    return LATENCY_BASE_MS + 20 + overflow**2 * 200 + queue_length * 0.5
+import math
+
+def compute_mmc_latency(request_rate: float, active_servers: int,
+                        latency_base_ms: float = LATENCY_BASE_MS) -> float:
+    c = max(1, min(active_servers, 15))   # cap at 15 — prevents factorial overflow
+    mu = float(SERVER_CAPACITY)            # service rate per server (req/s)
+    rho = request_rate / (c * mu)         # system utilization factor
+
+    # Overload state: theoretical latency → ∞, return timeout cap
+    if rho >= 0.99:
+        return latency_base_ms + 15000.0
+
+    # Erlang C formula: probability that a request must wait
+    crho = c * rho
+    numerator = (crho ** c) / (math.factorial(c) * (1 - rho))
+    sum_k = sum((crho ** k) / math.factorial(k) for k in range(c))
+    p_wait = numerator / (sum_k + numerator)
+
+    # Expected wait time in queue: seconds → milliseconds
+    wait_time_ms = (p_wait / (c * mu * (1 - rho))) * 1000.0
+
+    return latency_base_ms + wait_time_ms
 ```
+
+**Behavior:**
+- Low load (50 req/s, 5 servers) → ~10ms
+- Near capacity (490 req/s, 5 servers) → ~105ms
+- Overload (500+ req/s, 5 servers) → 15010ms (timeout cap)
 
 **Exit condition:** Print 50-step workload trace for all 3 profiles. Run twice — values must be identical.
 
@@ -200,53 +262,122 @@ def compute_latency(request_rate, capacity, queue_length) -> float:
 
 ## Phase 3 — Reward Function (`env/reward.py`)
 
-**Goal:** Multi-term reward, all terms bounded, predictable total range.
+**Goal:** Multi-term reward with exponential SLO penalty and L2 stability penalty. All terms bounded, total clipped to `[-5.0, 2.0]`.
 
 > **Note:** The reward function is NOT trained. It is a static formula computed every step.
 > What gets optimized (in future RL training) is the agent/policy — not this function.
 
+### Constants
+
 ```python
-def compute_reward(obs, action, prev_obs, oscillation_penalty,
-                   correctly_signaled) -> CloudReward:
+SLO_TARGET_MS = 100.0   # SLO latency threshold (ms)
+SLO_K         = 3.0     # steepness of exponential penalty (2.0–4.0 range)
+MAX_ACTION    = 2       # max |scale_delta| used for L2 normalization
+REWARD_RANGE  = (-5.0, 2.0)
+```
 
-    # Latency penalty
-    latency_penalty = 0 if obs.latency_ms < 50 else \
-        -min((obs.latency_ms - 50) / 50, 1.0) * 2.0
+### Reward Terms (v3.0)
 
-    # Throughput reward
-    served_ratio = min(obs.request_rate /
-                       max(obs.active_servers * SERVER_CAPACITY, 1), 1.0)
+| # | Term | Range | Formula | Weight |
+|---|------|-------|---------|--------|
+| 1 | **Throughput reward** | [0, 1.0] | `min(request_rate / max(active_servers × SERVER_CAPACITY, 1), 1.0)` | ×1.0 |
+| 2 | **Exponential SLO penalty** | [0, −15.0] | `if latency > SLO_TARGET_MS: -(exp(SLO_K × (latency - SLO_TARGET) / SLO_TARGET) - 1)`, capped at −10.0 | ×1.5 |
+| 3 | **Cost penalty** | [−0.5, 0] | `−min(over_provision / SERVER_CAPACITY, 1.0) × 0.5` | ×1.0 |
+| 4 | **Queue penalty** | [−1.0, 0] | `−min(queue_length / 100, 1.0) × 1.0` | ×1.0 |
+| 5 | **L2 stability penalty** | [−0.2, 0] | `−(scale_delta / MAX_ACTION)²` | ×0.2 |
+| 6 | **Invalid action penalty** | {−0.5, 0} | −0.5 if scaling during cooldown | ×1.0 |
+| 7 | **Signal bonus** | {0, 1.0} | +1.0 if correctly signaled INSUFFICIENT_CAPACITY | ×1.0 |
+
+**Total = w_eff×throughput − w_slo×slo_penalty + cost + queue − w_stab×stability + invalid + signal**
+
+Clipped to `[-5.0, 2.0]` for value-network stability during RL training.
+
+### v3.0 Design Rationale
+
+**Why exponential SLO penalty (replaces linear latency penalty):**
+The old penalty treated a 10ms increase at 20ms the same as at 490ms. In production, latency past the SLO threshold causes cascading failures. An exponential penalty correctly models this — near-zero under normal conditions, explodes past the threshold.
+
+**Why L2 action delta norm (replaces sign-change oscillation deque):**
+The old discrete cliff (`if sign_changes >= 3: -0.5`) creates a discontinuous reward landscape that destabilizes RL training. L2 norm is a smooth continuous gradient — micro-adjustments get negligible penalty, large swings get geometric penalty. `scale_delta=1 → 0.05 penalty`, `scale_delta=2 → 0.2 penalty`.
+
+### Signature
+
+```python
+def compute_reward(obs, action, prev_delta: int, correctly_signaled: bool) -> CloudReward:
+```
+
+> **v3.0 change:** Removed `prev_obs` and `oscillation_penalty` parameters. Added `prev_delta`. The L2 computation happens inside `reward.py` now — no external state needed.
+
+### Full Implementation
+
+```python
+import math
+
+def compute_reward(obs, action, prev_delta: int, correctly_signaled: bool):
+    # 1. Throughput reward — fraction of demand being served [0, +1.0]
+    served_ratio = min(
+        obs.request_rate / max(obs.active_servers * SERVER_CAPACITY, 1), 1.0
+    )
     throughput_reward = served_ratio * 1.0
 
-    # Cost penalty (over-provisioning)
+    # 2. Exponential SLO latency penalty
+    if obs.latency_ms > SLO_TARGET_MS:
+        slo_penalty = math.exp(SLO_K * ((obs.latency_ms - SLO_TARGET_MS)
+                                         / SLO_TARGET_MS)) - 1.0
+        slo_penalty = min(slo_penalty, 10.0)   # cap — prevents exploding gradients
+    else:
+        slo_penalty = 0.0
+
+    # 3. Cost penalty — over-provisioning [-0.5, 0]
     over_provision = max(obs.active_servers * SERVER_CAPACITY - obs.request_rate, 0)
     cost_penalty = -min(over_provision / SERVER_CAPACITY, 1.0) * 0.5
 
-    # Queue penalty
+    # 4. Queue penalty [-1.0, 0]
     queue_penalty = -min(obs.queue_length / 100, 1.0) * 1.0
 
-    # Invalid action penalty (tried to scale during cooldown)
-    invalid_penalty = -0.5 if (obs.cooldown_remaining > 0
-                                and action.mode != "signal") else 0.0
+    # 5. L2 action delta stability penalty
+    stability_penalty = (action.scale_delta / max(1, MAX_ACTION)) ** 2
 
-    # Capacity signal bonus
+    # 6. Invalid action penalty
+    invalid_penalty = -0.5 if (
+        obs.cooldown_remaining > 0
+        and action.mode == "step"
+        and action.scale_delta != 0
+    ) else 0.0
+
+    # 7. Capacity signal bonus
     signal_bonus = 1.0 if correctly_signaled else 0.0
 
-    total = (throughput_reward + latency_penalty + cost_penalty
-             + queue_penalty + oscillation_penalty + invalid_penalty + signal_bonus)
+    # Weights
+    w_eff  = 1.0
+    w_slo  = 1.5
+    w_stab = 0.2
+
+    total = (
+        w_eff  * throughput_reward
+        - w_slo  * slo_penalty
+        + cost_penalty
+        + queue_penalty
+        - w_stab * stability_penalty
+        + invalid_penalty
+        + signal_bonus
+    )
+
+    # Clip reward
+    total = max(-5.0, min(total, 2.0))
 
     return CloudReward(value=round(total, 4), breakdown={
-        "throughput": throughput_reward,
-        "latency": latency_penalty,
-        "cost": cost_penalty,
-        "queue": queue_penalty,
-        "oscillation": oscillation_penalty,
-        "invalid": invalid_penalty,
-        "signal": signal_bonus,
+        "throughput":  round(w_eff * throughput_reward, 4),
+        "slo_penalty": round(-w_slo * slo_penalty, 4),
+        "cost":        round(cost_penalty, 4),
+        "queue":       round(queue_penalty, 4),
+        "stability":   round(-w_stab * stability_penalty, 4),
+        "invalid":     round(invalid_penalty, 4),
+        "signal":      round(signal_bonus, 4),
     })
 ```
 
-**Exit condition:** Call with dummy observations, verify breakdown values sum to `value`, verify no term exceeds its bound.
+**Exit condition:** Call with dummy observations, verify breakdown values sum to `value` (after clipping), verify no term exceeds its bound.
 
 ---
 
@@ -254,72 +385,109 @@ def compute_reward(obs, action, prev_obs, oscillation_penalty,
 
 **Goal:** Full `reset/step/state` loop. Most complex phase.
 
-### Critical fixes applied here
+### v3.0 Critical Design Notes
 
-**Queue drain logic (fixed — requests no longer vanish):**
+1. **Queue drain** uses Lindley's recurrence with `STEP_DURATION_SEC` for dimensional correctness
+2. **Target-utilization** uses HPA-style ratio scaling with ±10% deadband
+3. **Stability** is handled by L2 penalty in `reward.py` — no oscillation deque needed
+
+### Queue Drain Logic (v3.0 — Lindley's Recurrence)
+
+**Why the change:** v2.0 added `request_rate` (req/s) directly to `queue_length` (a count). This is dimensionally invalid — it only works if each step is exactly 1 second. With `STEP_DURATION_SEC = 15`, we need to convert the rate to absolute arrivals per step first.
+
 ```python
 # In step():
-total_demand = obs.request_rate + self._queue
-fulfilled = min(total_demand, self._server_pool.effective_capacity)
-self._queue = max(0, int(total_demand - fulfilled))
-self._queue = min(self._queue, MAX_QUEUE)
+# request_rate is req/s, must be converted to arrivals per step
+arrivals       = int(self._request_rate * STEP_DURATION_SEC)
+capacity_count = int(self._server_pool.active * SERVER_CAPACITY * STEP_DURATION_SEC)
+total_demand   = self._queue + arrivals
+fulfilled      = min(total_demand, capacity_count)
+new_queue      = max(0, total_demand - fulfilled)
+dropped        = max(0, new_queue - MAX_QUEUE)       # requests lost to buffer overflow
+self._queue    = min(new_queue, MAX_QUEUE)
+utilization    = fulfilled / capacity_count if capacity_count > 0 else 1.0
 ```
 
-**Target utilization math (fixed — dimensionality correct):**
+**Dimensional analysis:**
+- `arrivals = rate(req/s) × STEP_DURATION(s) = count(req)`
+- `capacity_count = servers × capacity(req/s) × STEP_DURATION(s) = count(req)`
+- Both are now in the same units (request counts per step)
+
+### Target-Utilization Mode (v3.0 — HPA Ratio + Deadband)
+
+**Why the change:** v2.0's `ceil(rate / (target × capacity))` recomputes an absolute server count from the instantaneous request rate. On noisy workloads this causes micro-scaling every single step. Kubernetes HPA instead computes a ratio and skips action if within ±10% of target.
+
 ```python
-# mode="target"
-required_servers = math.ceil(
-    obs.request_rate / (action.target_utilization * SERVER_CAPACITY)
-)
-delta = required_servers - self._server_pool.active
+# mode == "target"
+# HPA-style ratio scaling with 10% tolerance deadband
+target_util = max(min(action.target_utilization, 0.95), 0.1)
+self._target_utilization = target_util
+ratio = self._utilization / target_util   # use current utilization
+if 0.9 <= ratio <= 1.1:
+    delta = 0   # within deadband — no action
+else:
+    desired = math.ceil(self._server_pool.active * ratio)
+    delta = desired - self._server_pool.active
 self._server_pool.apply_action(delta, self._step)
 ```
 
-**Oscillation tracking (zero-aware):**
-```python
-from collections import deque
-self._scale_history: deque = deque(maxlen=4)
+### Latency Computation (v3.0)
 
-def _oscillation_penalty(self) -> float:
-    # Filter zeros before checking sign changes
-    nonzero = [x for x in self._scale_history if x != 0]
-    if len(nonzero) < 2:
-        return 0.0
-    sign_changes = sum(
-        1 for a, b in zip(nonzero, nonzero[1:]) if (a > 0) != (b > 0)
-    )
-    return -0.5 if sign_changes >= 3 else 0.0
+```python
+# Old (v2.0):
+latency = compute_latency(self._request_rate, self._server_pool.effective_capacity, self._queue)
+
+# New (v3.0):
+latency = compute_mmc_latency(self._request_rate, self._server_pool.active)
 ```
 
-### Full class outline
+### Reward Computation (v3.0)
+
+```python
+# Old (v2.0):
+osc_pen = self._oscillation_penalty()
+reward = compute_reward(obs, action, prev_obs, osc_pen, correctly_signaled)
+
+# New (v3.0):
+reward = compute_reward(obs, action, action.scale_delta, correctly_signaled)
+```
+
+### Removed Components (v3.0)
+
+- `from collections import deque` — no longer needed
+- `self._scale_history = deque(maxlen=4)` — removed from `_reset_internals()`
+- `_oscillation_penalty()` method — deleted entirely
+- All references to `self._oscillation_penalty()` in `step()` — removed
+
+### Imports (v3.0)
+
+```python
+from env.simulation import (
+    MAX_QUEUE,
+    SERVER_CAPACITY,
+    STEP_DURATION_SEC,       # NEW
+    ServerPool,
+    WorkloadGenerator,
+    compute_mmc_latency,     # RENAMED from compute_latency
+)
+```
+
+### Full Step Loop Order
 
 ```python
 class CloudAutoScalingEnv:
-    def __init__(self, task_name: str = "easy"):
-        self._task = TASKS[task_name]
-        self._reset_internals()
-
-    def reset(self) -> CloudObservation:
-        self._reset_internals()
-        return self._build_observation()
-
     def step(self, action: CloudAction) -> StepResult:
-        # 1. Apply action (mode dispatch)
-        # 2. Advance workload
-        # 3. Tick server pool
-        # 4. Drain queue: total_demand = request_rate + queue
-        #    fulfilled = min(total_demand, effective_capacity)
-        #    queue = min(max(0, total_demand - fulfilled), MAX_QUEUE)
-        # 5. Compute utilization, latency
-        # 6. Compute reward
-        # 7. Check done
-        # 8. Return StepResult
-
-    def state(self) -> CloudObservation: ...
-
-    def _build_observation(self) -> CloudObservation:
-        # Includes queue_ratio and capacity_ratio normalized fields
-        ...
+        # 0. Snapshot previous observation
+        # 1. Dispatch action (mode: step / target / signal)
+        # 2. Advance step counter
+        # 3. Advance workload (get next request rate)
+        # 4. Tick server pool (graduate pending → active)
+        # 5. Drain queue (Lindley's recurrence with STEP_DURATION_SEC)
+        # 6. Compute utilization & latency (M/M/c Erlang C)
+        # 7. Check signal correctness
+        # 8. Compute reward (exponential SLO + L2 stability)
+        # 9. Check termination
+        # 10. Return StepResult
 ```
 
 **Exit condition:**
@@ -330,7 +498,7 @@ for _ in range(20):
     result = env.step(CloudAction(mode="step", scale_delta=1))
     print(result.reward, result.observation.latency_ms, result.observation.queue_length)
 ```
-Rewards should vary, queue should drain when capacity is available, not vanish.
+Rewards should vary, queue should drain when capacity is available, latency should drop as servers scale up.
 
 ---
 
@@ -548,13 +716,15 @@ action_space:
     - scale_delta: int
     - target_utilization: float
     - signal_type: "INSUFFICIENT_CAPACITY | null"
-reward_range: [-3.5, 2.0]
+reward_range: [-5.0, 2.0]
 tags:
   - openenv
   - cloud
   - autoscaling
   - reinforcement-learning
 ```
+
+> **v3.0 change:** `reward_range` updated from `[-3.5, 2.0]` to `[-5.0, 2.0]`.
 
 ### `Dockerfile`
 
@@ -578,14 +748,86 @@ CMD ["uvicorn", "server.main:app", "--host", "0.0.0.0", "--port", "7860"]
 
 ---
 
-## Pitfalls Reference
+## v3.0 Formula Quick Reference
+
+### Latency (Erlang C — M/M/c)
+
+```
+c = active_servers (capped at 15)
+μ = SERVER_CAPACITY (100 req/s per server)
+ρ = request_rate / (c × μ)
+
+If ρ ≥ 0.99 → latency = LATENCY_BASE_MS + 15000.0 (timeout)
+
+Erlang C probability of waiting:
+  P_wait = [(cρ)^c / (c! × (1-ρ))] / [Σ_{k=0}^{c-1} (cρ)^k/k! + (cρ)^c/(c!×(1-ρ))]
+
+Expected wait time:
+  W_q = P_wait / (c × μ × (1-ρ))
+
+Latency = LATENCY_BASE_MS + W_q × 1000 (ms)
+```
+
+### Queue Drain (Lindley's Recurrence)
+
+```
+arrivals       = ⌊request_rate × STEP_DURATION_SEC⌋
+capacity_count = ⌊active_servers × SERVER_CAPACITY × STEP_DURATION_SEC⌋
+total_demand   = queue + arrivals
+fulfilled      = min(total_demand, capacity_count)
+new_queue      = max(0, total_demand - fulfilled)
+dropped        = max(0, new_queue - MAX_QUEUE)
+queue          = min(new_queue, MAX_QUEUE)
+utilization    = fulfilled / capacity_count
+```
+
+### Reward
+
+```
+total = (1.0 × throughput)
+      - (1.5 × slo_penalty)
+      + cost_penalty
+      + queue_penalty
+      - (0.2 × stability_penalty)
+      + invalid_penalty
+      + signal_bonus
+
+clipped to [-5.0, 2.0]
+
+where:
+  throughput     = min(rate / max(servers × 100, 1), 1.0)
+  slo_penalty    = min(exp(3.0 × (latency - 100) / 100) - 1, 10.0)  if latency > 100ms, else 0
+  cost_penalty   = -min(overcapacity / 100, 1.0) × 0.5
+  queue_penalty  = -min(queue / 100, 1.0) × 1.0
+  stability      = (scale_delta / 2)²
+  invalid        = -0.5 if scaling during cooldown, else 0
+  signal         = +1.0 if correctly signaled INSUFFICIENT_CAPACITY
+```
+
+### HPA Ratio Scaling (Target Mode)
+
+```
+ratio = utilization / target_utilization
+if 0.9 ≤ ratio ≤ 1.1 → delta = 0           (deadband)
+else → desired = ⌈active_servers × ratio⌉
+       delta = desired - active_servers
+```
+
+---
+
+## Pitfalls Reference (v3.0 Updated)
 
 | Pitfall | Fix |
 |---------|-----|
 | Two grader threads clobber same env | Session UUID key — Phase 5 |
-| Requests vanish from queue | `total_demand = rate + queue` drain — Phase 4 |
-| Target util dimensionality bug | `ceil(rate / (target_util * SERVER_CAPACITY))` — Phase 4 |
-| Oscillation check skips zeros | Filter zeros before sign-change scan — Phase 4 |
+| Requests vanish from queue | Lindley's recurrence with `STEP_DURATION_SEC` — Phase 4 |
+| Dimensionally invalid queue math | `rate × STEP_DURATION_SEC` converts req/s → count — Phase 4 |
+| Target util causes micro-scaling | HPA ratio + ±10% deadband — Phase 4 |
+| Latency model wrong for parallel servers | Erlang C M/M/c replaces M/D/1 — Phase 2 |
+| Linear latency penalty insensitive to SLO violations | Exponential SLO penalty — Phase 3 |
+| Oscillation deque creates discontinuous reward | L2 stability penalty (smooth gradient) — Phase 3 |
+| Factorial overflow for large server counts | `c` capped at 15 in Erlang C — Phase 2 |
+| Breakdown sum ≠ value after clipping | `_verify_bounds` clips sum before comparing — Phase 3 |
 | Unnormalized obs for RL | `queue_ratio`, `capacity_ratio` in model — Phase 1 |
 | LLM ignores cooldown | Explicit rule #1 in system prompt — Phase 6 |
 | HF port mismatch | Port 7860 hardcoded in Dockerfile |
@@ -600,9 +842,26 @@ CMD ["uvicorn", "server.main:app", "--host", "0.0.0.0", "--port", "7860"]
 |-------|-------------|-----------|
 | 0 | Repo + venv + skeleton | `.gitignore`, `requirements.txt` |
 | 1 | Pydantic models | `env/models.py` |
-| 2 | Simulation core | `env/simulation.py` |
-| 3 | Reward function | `env/reward.py` |
-| 4 | Environment loop | `env/environment.py`, `env/tasks.py` |
-| 5 | HTTP server | `server/main.py`, `server/routers.py` |
+| 2 | Simulation core (Poisson workloads, Erlang C latency) | `env/simulation.py` |
+| 3 | Reward function (exp SLO, L2 stability) | `env/reward.py` |
+| 4 | Environment loop (Lindley queue, HPA deadband) | `env/environment.py`, `env/tasks.py` |
+| 5 | HTTP server | `server/main.py`, `server/app.py` |
 | 6 | Baseline script | `inference.py` |
 | 7 | Ship | `openenv.yaml`, `Dockerfile`, `README.md` |
+
+---
+
+## v2.0 → v3.0 Changelog Summary
+
+| Component | v2.0 | v3.0 |
+|-----------|------|------|
+| Workload generation | Gaussian noise (`randn()`) | Poisson + lognormal + Pareto |
+| Latency model | M/D/1 piecewise quadratic | M/M/c Erlang C |
+| Latency penalty | Linear (−2.0 cap) | Exponential SLO (−15.0 cap, ×1.5 weight) |
+| Oscillation penalty | Sign-change deque (discrete cliff) | L2 action delta norm (smooth gradient) |
+| Queue drain | `rate + queue` (dimensionally wrong) | Lindley's recurrence × `STEP_DURATION_SEC` |
+| Target scaling | `ceil(rate / (target × cap))` | HPA ratio + ±10% deadband |
+| Reward range | `[-3.5, 2.0]` | `[-5.0, 2.0]` (clipped) |
+| `compute_reward` signature | `(obs, action, prev_obs, oscillation_penalty, correctly_signaled)` | `(obs, action, prev_delta, correctly_signaled)` |
+| `compute_latency` signature | `(request_rate, capacity, queue_length)` | `compute_mmc_latency(request_rate, active_servers)` |
+| Time constant | implicit 1s steps | explicit `STEP_DURATION_SEC = 15.0` |

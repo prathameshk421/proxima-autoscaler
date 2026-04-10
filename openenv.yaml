@@ -33,7 +33,7 @@ action_space:
     - scale_delta: int
     - target_utilization: float
     - signal_type: "INSUFFICIENT_CAPACITY | null"
-reward_range: [-3.5, 2.0]
+reward_range: [-5.0, 2.0]
 tags:
   - openenv
   - cloud
