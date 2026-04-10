@@ -42,6 +42,20 @@ def _get_session(session_id: str) -> CloudAutoScalingEnv:
 
 # ── Routes ───────────────────────────────────────────────────────────────────
 
+@app.get("/")
+def root() -> dict:
+    """Welcome endpoint for browser/root URL visits."""
+    return {
+        "message": "Welcome to proxima-autoscalar",
+        "status": "ok",
+        "endpoints": {
+            "health": "/health",
+            "reset": "POST /reset?task=easy|medium|hard",
+            "step": "POST /step?session_id=<uuid>",
+            "state": "GET /state?session_id=<uuid>",
+        },
+    }
+
 @app.post("/reset")
 def reset(task: str = Query("easy", description="Task name: easy, medium, or hard")) -> dict:
     """Start a new episode.  Returns a ``session_id`` for subsequent calls."""
