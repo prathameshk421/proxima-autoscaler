@@ -37,7 +37,8 @@ load_dotenv()
 
 API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
 MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
-API_KEY = os.getenv("HF_TOKEN") or os.getenv("OPENAI_API_KEY", "")
+API_KEY = os.getenv("HF_TOKEN") or os.getenv("API_KEY", "")
+LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME", "")
 ENV_URL = os.getenv("ENV_URL", "http://localhost:7860")
 POLICY_MODE = os.getenv("POLICY_MODE", "auto").strip().lower()
 
@@ -45,7 +46,7 @@ POLICY_MODE = os.getenv("POLICY_MODE", "auto").strip().lower()
 def _format_error(error_value):
     if not error_value:
         return "null"
-    return str(error_value).replace("\n", "\\n").replace("\r", "\\r")
+    return str(error_value)
 
 
 def _heuristic_action(obs: dict) -> dict:
@@ -96,7 +97,7 @@ def run_task(task_name: str):
         if POLICY_MODE not in {"auto", "llm", "heuristic"}:
             raise RuntimeError("POLICY_MODE must be one of: auto, llm, heuristic")
         if POLICY_MODE == "llm" and not API_KEY:
-            raise RuntimeError("Missing API key. Set HF_TOKEN or OPENAI_API_KEY.")
+            raise RuntimeError("Missing API key. Set HF_TOKEN or API_KEY.")
 
         client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY) if use_llm else None
 
@@ -152,7 +153,7 @@ def run_task(task_name: str):
         r_str = ",".join(f"{r:.2f}" for r in rewards)
         print(
             f"[END] success={str(success).lower()} steps={steps_taken} "
-            f"score={score:.3f} rewards={r_str}",
+            f"score={score:.2f} rewards={r_str}",
             flush=True,
         )
 
