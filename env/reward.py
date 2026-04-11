@@ -25,8 +25,12 @@ from __future__ import annotations
 
 import math
 
-from env.models import CloudAction, CloudObservation, CloudReward
-from env.simulation import SERVER_CAPACITY
+try:
+    from env.models import CloudAction, CloudObservation, CloudReward
+    from env.simulation import SERVER_CAPACITY
+except ModuleNotFoundError:  # pragma: no cover - supports `python env/reward.py`
+    from models import CloudAction, CloudObservation, CloudReward
+    from simulation import SERVER_CAPACITY
 
 
 # ── Constants ────────────────────────────────────────────────────────────────
@@ -43,7 +47,7 @@ REWARD_RANGE: tuple[float, float] = (-5.0, 2.0)
 def compute_reward(
     obs: CloudObservation,
     action: CloudAction,
-    prev_delta: int,
+    invalid_action: bool,
     correctly_signaled: bool,
 ) -> CloudReward:
     """Compute the step reward for the Proxima autoscaler environment.
@@ -54,8 +58,9 @@ def compute_reward(
         Observation *after* the action has been applied.
     action:
         The action that was taken this step.
-    prev_delta:
-        ``scale_delta`` from the previous step (0 at episode start).
+    invalid_action:
+        ``True`` when the action attempted an unavailable scaling operation,
+        such as scaling during cooldown or beyond min/max bounds.
     correctly_signaled:
         ``True`` when the agent issued an ``INSUFFICIENT_CAPACITY`` signal
         at the right moment; ``False`` otherwise.
@@ -94,11 +99,7 @@ def compute_reward(
     stability_penalty = (action.scale_delta / max(1, MAX_ACTION)) ** 2
 
     # 6. Invalid action penalty — scaled during cooldown
-    invalid_penalty = -0.5 if (
-        obs.cooldown_remaining > 0
-        and action.mode == "step"
-        and action.scale_delta != 0
-    ) else 0.0
+    invalid_penalty = -0.5 if invalid_action else 0.0
 
     # 7. Capacity signal bonus
     signal_bonus = 1.0 if correctly_signaled else 0.0
