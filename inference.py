@@ -58,13 +58,15 @@ load_dotenv()
 
 # Kept to satisfy sample requirements for docker-image based runners.
 LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME") or os.getenv("IMAGE_NAME")
-API_KEY = os.getenv("HF_TOKEN") or os.getenv("API_KEY")
+# Prefer injected API_KEY (validator proxy), fall back to HF_TOKEN for local use.
+API_KEY = os.getenv("API_KEY") or os.getenv("HF_TOKEN")
 
 # MANDATORY: keep these as explicit getenv defaults per submission template.
 API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
 MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
 ENV_URL = (os.getenv("ENV_URL") or "http://localhost:7860").rstrip("/")
-POLICY_MODE = (os.getenv("POLICY_MODE") or "heuristic").strip().lower()
+# Default to llm so submission runs always exercise the provided LLM proxy.
+POLICY_MODE = (os.getenv("POLICY_MODE") or "llm").strip().lower()
 BENCHMARK = os.getenv("BENCHMARK") or "cloud-autoscaling"
 SUCCESS_SCORE_THRESHOLD = float(os.getenv("SUCCESS_SCORE_THRESHOLD") or "0.1")
 
@@ -397,10 +399,8 @@ async def main() -> None:
         if API_KEY:
             client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
         else:
-            print(
-                "[DEBUG] HF_TOKEN/API_KEY not found; using heuristic policy fallback.",
-                file=sys.stderr,
-                flush=True,
+            raise RuntimeError(
+                "POLICY_MODE=llm requires API_KEY (or HF_TOKEN) to be set."
             )
 
     timeout = httpx.Timeout(HTTP_TIMEOUT_SEC)
