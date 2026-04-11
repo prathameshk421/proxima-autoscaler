@@ -20,17 +20,30 @@ from __future__ import annotations
 import math
 from typing import Optional
 
-from env.models import CloudAction, CloudObservation, StepResult
-from env.reward import compute_reward
-from env.simulation import (
-    MAX_QUEUE,
-    SERVER_CAPACITY,
-    STEP_DURATION_SEC,
-    ServerPool,
-    WorkloadGenerator,
-    compute_mmc_latency,
-)
-from env.tasks import TASKS, TaskConfig
+try:
+    from env.models import CloudAction, CloudObservation, StepResult
+    from env.reward import compute_reward
+    from env.simulation import (
+        MAX_QUEUE,
+        SERVER_CAPACITY,
+        STEP_DURATION_SEC,
+        ServerPool,
+        WorkloadGenerator,
+        compute_mmc_latency,
+    )
+    from env.tasks import TASKS, TaskConfig
+except ModuleNotFoundError:  # pragma: no cover - supports `python env/environment.py`
+    from models import CloudAction, CloudObservation, StepResult
+    from reward import compute_reward
+    from simulation import (
+        MAX_QUEUE,
+        SERVER_CAPACITY,
+        STEP_DURATION_SEC,
+        ServerPool,
+        WorkloadGenerator,
+        compute_mmc_latency,
+    )
+    from tasks import TASKS, TaskConfig
 
 
 class CloudAutoScalingEnv:
@@ -79,9 +92,10 @@ class CloudAutoScalingEnv:
 
         # ── 0. Snapshot previous observation ─────────────────────────────
         prev_obs = self._build_observation()
+        invalid_action_error = self._validate_action(action, prev_obs)
 
         # ── 1. Dispatch action ───────────────────────────────────────────
-        actual_delta = self._apply_action(action)
+        self._apply_action(action)
 
         # ── 2. Advance step counter ─────────────────────────────────────
         self._step += 1
@@ -119,7 +133,7 @@ class CloudAutoScalingEnv:
         reward_result = compute_reward(
             obs=obs,
             action=action,
-            prev_delta=action.scale_delta,
+            invalid_action=invalid_action_error is not None,
             correctly_signaled=correctly_signaled,
         )
 
@@ -133,7 +147,10 @@ class CloudAutoScalingEnv:
             observation=obs,
             reward=reward_result.value,
             done=self._done,
-            info=reward_result.breakdown,
+            info={
+                **reward_result.breakdown,
+                "last_action_error": invalid_action_error,
+            },
         )
 
     def state(self) -> CloudObservation:
@@ -214,6 +231,31 @@ class CloudAutoScalingEnv:
         at_max = self._server_pool.active >= self._task.max_servers
         overloaded = self._utilization > 0.95
         return at_max and overloaded
+
+    def _validate_action(
+        self,
+        action: CloudAction,
+        obs: CloudObservation,
+    ) -> Optional[str]:
+        """Return an error label when a scaling request cannot be honored."""
+        if action.mode == "step":
+            if action.scale_delta == 0:
+                return None
+            if obs.cooldown_remaining > 0:
+                return "cooldown_active"
+            if action.scale_delta > 0 and self._server_pool.total_servers >= self._task.max_servers:
+                return "at_max_capacity"
+            if action.scale_delta < 0 and self._server_pool.active <= self._task.min_servers:
+                return "at_min_capacity"
+            return None
+
+        if action.mode == "target" and obs.cooldown_remaining > 0:
+            target = max(min(action.target_utilization, 0.95), 0.1)
+            ratio = self._utilization / target
+            if not 0.9 <= ratio <= 1.1:
+                return "cooldown_active"
+
+        return None
 
 
     def _build_observation(self) -> CloudObservation:
