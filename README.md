@@ -9,136 +9,130 @@ tags:
   - reinforcement-learning
 ---
 
-# 🖥️ Cloud Auto-Scaling OpenEnv
+# Cloud Autoscaling OpenEnv
 
-An [OpenEnv](https://huggingface.co/openenv)-compliant reinforcement learning environment that simulates intelligent cloud infrastructure auto-scaling. An RL or LLM agent observes real-time system metrics and decides how to provision servers — balancing latency, cost, and stability under dynamic workloads.
+## Abstract
+This repository implements an OpenEnv-compatible benchmark for cloud autoscaling control. The environment models non-stationary request demand, delayed server provisioning, cooldown-constrained control, finite queue capacity, and queueing-theoretic latency behavior. It is intended for controlled evaluation of reinforcement learning and LLM-based policies under deterministic task seeds.
 
----
+## Research Objective
+The benchmark studies a standard control trade-off in cloud systems:
 
-## What is this?
+- Under-provisioning increases queue buildup and latency violations.
+- Over-provisioning reduces delay but increases idle-capacity cost.
+- Aggressive scaling can destabilize control decisions.
 
-Modern cloud systems need to scale server capacity up and down in response to changing traffic. Scale too slowly and users experience high latency. Scale too aggressively and you waste money on idle servers. This environment formalizes that problem as an RL task.
+The policy objective is to maximize cumulative reward while preserving service quality and cost efficiency across an episode.
 
-An agent receives system observations every step (request rate, utilization, queue depth, latency, cooldown) and outputs a scaling action. It is rewarded for keeping latency low, avoiding over-provisioning, draining the queue, and staying stable — penalized for thrashing, ignoring cooldowns, and letting queues overflow.
+## Formal Environment Definition
+At each timestep, the environment returns an observation vector and accepts one action. The transition includes workload evolution, server activation delays, queue updates, and latency estimation. The step API returns:
 
----
+- next observation
+- scalar reward
+- termination flag
+- reward-component metadata in `info`
 
-## Environment Description
-
-- **Observation:** System metrics snapshot at each timestep
-- **Action:** Scale up/down by step, target a utilization level, or signal capacity exhaustion
-- **Reward:** Multi-term shaped reward (throughput + SLO penalty + cost + queue + stability)
-- **Episodes:** 50–100 steps depending on task difficulty
-- **Determinism:** All tasks are seeded — same seed always produces the same workload
-
----
-
-## Observation Space
+### Observation Space
 
 | Field | Type | Description |
-|-------|------|-------------|
-| `active_servers` | int | Currently provisioned servers |
-| `max_servers` | int | Hard capacity ceiling |
+|---|---|---|
+| `active_servers` | int | Active server count |
+| `max_servers` | int | Capacity ceiling for the task |
 | `request_rate` | float | Incoming requests per second |
-| `utilization` | float | Average utilization across active servers [0, 1] |
-| `queue_length` | int | Unserved requests waiting |
-| `latency_ms` | float | Estimated p99 latency in milliseconds |
-| `target_utilization` | float | Current target utilization (used in target mode) |
-| `cooldown_remaining` | int | Steps until next scaling action is allowed |
-| `step_number` | int | Current step in the episode |
-| `done` | bool | Whether the episode has ended |
-| `queue_ratio` | float | `queue_length / MAX_QUEUE` — normalized [0, 1] |
-| `capacity_ratio` | float | `active_servers / max_servers` — normalized [0, 1] |
+| `utilization` | float | Approximate utilization in [0, 1] |
+| `queue_length` | int | Requests waiting in queue |
+| `latency_ms` | float | Estimated latency (ms) |
+| `target_utilization` | float | Current target setpoint for target mode |
+| `cooldown_remaining` | int | Steps before another scale action is allowed |
+| `step_number` | int | Timestep index |
+| `done` | bool | Episode termination indicator |
+| `queue_ratio` | float | Queue occupancy normalized by max queue |
+| `capacity_ratio` | float | Active servers normalized by task max |
 
----
-
-## Action Space
+### Action Space
 
 | Field | Type | Description |
-|-------|------|-------------|
-| `mode` | `"step" \| "target" \| "signal"` | Action type |
-| `scale_delta` | int | Servers to add/remove (used when `mode=step`) |
-| `target_utilization` | float | Desired utilization 0.4–0.7 (used when `mode=target`) |
-| `signal_type` | `"INSUFFICIENT_CAPACITY" \| null` | Capacity signal (used when `mode=signal`) |
+|---|---|---|
+| `mode` | `"step" | "target" | "signal"` | Control mode |
+| `scale_delta` | int | Server delta in step mode (clamped to [-2, 2]) |
+| `target_utilization` | float | Utilization target in target mode |
+| `signal_type` | `"INSUFFICIENT_CAPACITY" | null` | Capacity-exhaustion signal in signal mode |
 
-### Mode details
+Mode semantics:
 
-- **`step`** — Directly add or remove servers (`scale_delta` in range -2 to +2). Subject to cooldown.
-- **`target`** — Specify a desired utilization level; the environment computes the required server count automatically.
-- **`signal`** — Report that capacity is exhausted (`INSUFFICIENT_CAPACITY`) when at max servers and still overloaded. Earns a bonus if correctly used.
+- `step`: direct horizontal scaling by integer server delta.
+- `target`: HPA-style target utilization control with deadband.
+- `signal`: report capacity saturation without changing server count.
 
----
+### Reward Components
+The total reward is composed from throughput, SLO penalty, cost, queue pressure, action stability, invalid-action penalty, and optional signal bonus.
 
-## Reward Function
+Component ranges in implementation:
 
-Total reward per step is the sum of the following terms:
+- throughput term: [0.0, 1.0]
+- SLO term (weighted negative): [-15.0, 0.0]
+- cost term: [-0.5, 0.0]
+- queue term: [-1.0, 0.0]
+- stability term (weighted negative): [-0.2, 0.0]
+- invalid-action term: {-0.5, 0.0}
+- signal bonus: {0.0, 1.0}
 
-| Term | Range | Description |
-|------|-------|-------------|
-| Throughput reward | `[0, +1.0]` | Fraction of demand being served |
-| SLO penalty | `[-15.0, 0]` | Exponential penalty when p99 latency exceeds SLO Target (100ms) |
-| Cost penalty | `[-0.5, 0]` | Penalty for idle over-provisioned capacity |
-| Queue penalty | `[-1.0, 0]` | Penalty proportional to queue depth |
-| Stability penalty | `[-0.2, 0]` | L2 norm penalty for scale delta to discourage thrashing |
-| Invalid action penalty | `[-0.5, 0]` | Penalty for scaling during cooldown |
-| Signal bonus | `[0, +1.0]` | Bonus for correctly signaling capacity exhaustion |
+Final per-step reward is clipped to [-5.0, 2.0].
 
-**Total reward range:** `[-5.0, +2.0]` per step (clipped)
+### Episode Score Normalization
+Evaluation score is normalized to [0, 1] from cumulative reward:
 
-**Episode score (0.0–1.0):**
-```
+```text
 score = (sum_rewards - worst_possible) / (best_possible - worst_possible)
 ```
 
----
+where `worst_possible = -5.0 * max_steps` and `best_possible = 2.0 * max_steps`.
 
-## Tasks
+## System Dynamics
+The simulation currently uses the following assumptions:
 
-### Easy
-- **Workload:** Smooth sinusoidal pattern
-- **Steps:** 50
-- **Max servers:** 10
-- **Goal:** Learn basic up/down provisioning on a predictable curve
+- server capacity: 100 requests/second/server
+- startup delay: 2 steps for newly added servers
+- cooldown: 3 steps after each scaling action
+- queue cap: 500 requests (overflow is dropped)
+- step duration: 15 seconds
+- latency model: M/M/c (Erlang C)
 
-### Medium
-- **Workload:** Fluctuating with moderate noise
-- **Steps:** 75
-- **Max servers:** 12
-- **Goal:** Filter noise vs. real demand shifts; avoid overreacting to spikes
+Queue update logic is based on demand-service balance per step:
 
-### Hard
-- **Workload:** Spiky with sudden burst events (15% spike probability)
-- **Steps:** 100
-- **Max servers:** 15
-- **Goal:** Handle sudden bursts that may exceed max capacity; use capacity signal correctly
+- arrivals = request_rate * step_duration
+- service_capacity = active_servers * server_capacity * step_duration
+- queue_next = min(max_queue, max(0, queue + arrivals - fulfilled))
 
----
+## Task Configuration
 
-## Baseline Scores
+| Task | Workload Profile | Steps | Initial Servers | Max Servers | Seed |
+|---|---|---:|---:|---:|---:|
+| easy | smooth sinusoidal demand | 50 | 3 | 10 | 42 |
+| medium | fluctuating demand with noise | 75 | 3 | 12 | 42 |
+| hard | spiky demand with burst events | 100 | 3 | 15 | 42 |
 
-Scores from the deterministic heuristic baseline (`POLICY_MODE=heuristic`) against local API:
+## Repository Structure
 
-| Task | Score |
-|------|-------|
-| easy | 0.168 |
-| medium | 0.061 |
-| hard | 0.143 |
-
----
+- `env/`: environment, simulation, reward, models, and task configuration
+- `server/main.py`: FastAPI service implementing reset/step/state endpoints
+- `openenv.yaml`: OpenEnv metadata (name, tasks, spaces)
+- `inference.py`: submission-format inference script
+- `run_inference.py`: local/remote analysis runner
+- `tests/test_environment.py`: environment behavior tests
+- `pre_validation_script.sh`: end-to-end validation helper
 
 ## Setup
 
-### Local (development)
+### Local Development
 
 ```bash
-git clone <your-repo-url>
-cd cloud-autoscaling-openenv
+git clone <repo-url>
+cd proxima-autoscaler
 
 python3 -m venv .venv
-source .venv/bin/activate       # Mac/Linux
-# .venv\Scripts\activate        # Windows
-
+source .venv/bin/activate
 pip install -r requirements.txt
+
 uvicorn server.main:app --reload --port 7860
 ```
 
@@ -149,170 +143,104 @@ docker build -t cloud-env .
 docker run -p 7860:7860 cloud-env
 ```
 
-### OpenEnv Metadata
-
-The OpenEnv spec for this environment is defined in `openenv.yaml` at repository root.
-
-### Hugging Face Space
-
-The environment is deployed at: `https://huggingface.co/spaces/<your-space>`
-
-Set the following environment variables in your Space settings:
-- `API_BASE_URL` — LLM inference endpoint (default: `https://router.huggingface.co/v1`)
-- `MODEL_NAME` — Model to use (default: `Qwen/Qwen2.5-72B-Instruct`)
-- `HF_TOKEN` — Your HuggingFace token
-
-In your Space metadata, include the `openenv` tag.
-
----
-
-## Deploy Checklist
-
-1. Build and run the container locally:
-
-```bash
-docker build -t cloud-env . && docker run -p 7860:7860 cloud-env
-```
-
-2. Verify health endpoint:
+### Health Check
 
 ```bash
 curl http://localhost:7860/health
-# {"status":"ok"}
 ```
 
-3. Run baseline against localhost and record scores:
+## API Contract
+All endpoints are served from `http://localhost:7860` or your deployed URL.
 
-```bash
-POLICY_MODE=heuristic ENV_URL=http://localhost:7860 python inference.py
-```
-
-4. Push to Hugging Face Spaces with `openenv` in Space metadata tags.
-
-5. Run baseline against live Space and compare with local scores:
-
-```bash
-POLICY_MODE=heuristic ENV_URL=https://<your-space>.hf.space python inference.py
-```
-
----
-
-## API Usage
-
-All endpoints are available at `http://localhost:7860` (or your HF Space URL).
-
-### `POST /reset?task=<easy|medium|hard>`
-
-Start a new episode. Returns a `session_id` — pass this to all subsequent calls.
+### Reset
 
 ```bash
 curl -X POST "http://localhost:7860/reset?task=easy"
 ```
 
-```json
-{
-  "session_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
-  "observation": {
-    "active_servers": 3,
-    "request_rate": 142.5,
-    "utilization": 0.47,
-    ...
-  }
-}
-```
+Returns `session_id` and initial observation.
 
-### `POST /step?session_id=<uuid>`
-
-Take one action. Returns the next observation, reward, and done flag.
+### Step
 
 ```bash
-curl -X POST "http://localhost:7860/step?session_id=f47ac10b-..." \
+curl -X POST "http://localhost:7860/step?session_id=<uuid>" \
   -H "Content-Type: application/json" \
-  -d '{"mode": "step", "scale_delta": 1}'
+  -d '{"mode":"step","scale_delta":1}'
 ```
 
-```json
-{
-  "observation": { ... },
-  "reward": 0.62,
-  "done": false,
-  "info": {}
-}
-```
+Returns observation, reward, done flag, and info.
 
-### `GET /state?session_id=<uuid>`
-
-Get the current observation without advancing the step.
+### State
 
 ```bash
-curl "http://localhost:7860/state?session_id=f47ac10b-..."
+curl "http://localhost:7860/state?session_id=<uuid>"
 ```
 
-### `GET /health`
+Returns current observation without advancing the episode.
+
+## Inference and Evaluation
+
+### Submission Script (`inference.py`)
+The script emits strict line-oriented logs expected by the evaluation pipeline:
+
+- `[START] ...`
+- `[STEP] ...`
+- `[END] ...`
+
+Required environment variables for LLM mode:
+
+- `API_BASE_URL`
+- `MODEL_NAME`
+- `HF_TOKEN` (or `API_KEY`)
+
+Heuristic run:
 
 ```bash
-curl "http://localhost:7860/health"
-# {"status": "ok"}
+POLICY_MODE=heuristic ENV_URL=http://localhost:7860 python inference.py
 ```
 
----
-
-## Running the Baseline
-
-Environment setup (recommended):
+LLM run:
 
 ```bash
-cp .env.example .env
-# edit .env and set HF_TOKEN (and other values if needed)
+HF_TOKEN=<token> POLICY_MODE=llm ENV_URL=http://localhost:7860 python inference.py
 ```
 
-`inference.py` auto-loads `.env` via `python-dotenv`, so explicit `export` commands are optional.
-
-Heuristic mode (recommended for reproducible local/HF validation, no token required):
+### Analysis Script (`run_inference.py`)
+Example local run:
 
 ```bash
-export POLICY_MODE=heuristic
-export ENV_URL=http://localhost:7860
-python inference.py
+python run_inference.py --local --task easy --max-steps 12
 ```
 
-LLM mode (Qwen via Hugging Face router):
+## Validation
+
+Run unit tests:
 
 ```bash
-export HF_TOKEN=your_token_here
-export ENV_URL=http://localhost:7860
-export POLICY_MODE=llm
-
-python inference.py
+pytest -q
 ```
 
-Expected output format:
+Run OpenEnv validation:
 
-```
-[START] task=easy env=cloud-autoscaling model=Qwen/Qwen2.5-72B-Instruct
-[STEP] step=1 action={"mode": "step", "scale_delta": 1} reward=0.72 done=false error=null
-[STEP] step=2 action={"mode": "step", "scale_delta": 0} reward=0.65 done=false error=null
-...
-[END] success=true steps=50 score=0.731 rewards=0.72,0.65,...
+```bash
+openenv validate
 ```
 
----
+Run deployment validation helper:
 
-## Simulation Details
+```bash
+bash pre_validation_script.sh <hf-space-url> .
+```
 
-- **Server startup delay:** 2 steps (new servers aren't instantly available)
-- **Cooldown:** 3 steps after any scaling action before the next is allowed
-- **Queue capacity:** 500 requests max — overflow is dropped
-- **Latency model:** M/M/c (Erlang C) queuing formula with realistic latency explosion near 100% utilization
-- **Server capacity:** 100 req/s per server
-- **Time step:** Each step represents 15 seconds (matching Kubernetes HPA scrape intervals)
+## Reproducibility Notes
 
----
+- Task workloads are deterministic for fixed seeds.
+- Session IDs are UUID-based to support concurrent evaluators.
+- Use fixed model, temperature, and timeout settings for comparable experiments.
+- Compare local and deployed runs with identical task and policy mode.
 
 ## References
 
-1. arXiv:2001.09957 — Survey on RL for cloud resource management (state design)
-2. arXiv:2005.14410 — Serverless RL auto-scaling (reward design: latency + queue + over-provisioning)
-3. IBM CLOUD 2024 — Latency/cost trade-off framing
-4. Nature Scientific Reports 2025 — Multi-objective DQN reward structure
-5. OpenEnv documentation — `step/reset/state` contract, typed models, yaml spec
+1. Cloud autoscaling control literature on latency-cost trade-offs in RL.
+2. Queueing theory references for M/M/c latency approximation (Erlang C).
+3. OpenEnv API specification and validation workflow.
