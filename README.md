@@ -11,125 +11,95 @@ tags:
 
 # Proxima Autoscalar
 
-Proxima Autoscalar is our hackathon project: an OpenEnv-compatible cloud autoscaling environment where an RL or LLM policy controls server scaling under changing traffic.
+Proxima Autoscalar is our hackathon system for intelligent cloud capacity control. It simulates realistic autoscaling constraints and evaluates how well an RL or LLM policy can balance latency, queue pressure, and infrastructure cost.
 
-## What We Built
+## Problem Statement
 
-- A deterministic autoscaling simulation with realistic constraints.
-- A FastAPI environment server compatible with OpenEnv workflow.
-- Three difficulty levels (`easy`, `medium`, `hard`) for policy evaluation.
-- Inference scripts for both heuristic and LLM policies.
+Cloud systems fail in two opposite ways:
 
-## Core Environment
+- If scaling is too slow, latency spikes and requests accumulate in queue.
+- If scaling is too aggressive, cost rises due to idle servers.
 
-At each step, the agent reads system state and sends one scaling action.
+Proxima Autoscalar addresses this as a sequential decision problem where an agent must react to non-stationary demand while operating under operational constraints such as startup delay and cooldown.
 
-Observation fields:
+## What We Delivered
 
-- `active_servers`
-- `max_servers`
-- `request_rate`
-- `utilization`
-- `queue_length`
-- `latency_ms`
-- `target_utilization`
-- `cooldown_remaining`
-- `step_number`
-- `done`
-- `queue_ratio`
-- `capacity_ratio`
+1. A deterministic autoscaling benchmark with three progressively harder traffic regimes.
+2. A complete OpenEnv-compatible environment API with session-level isolation.
+3. A simulation stack that models cloud realities: delayed provisioning, cooldown locks, bounded queue, and capacity saturation.
+4. A multi-objective reward design that encodes service quality, efficiency, and controller stability.
+5. Policy evaluation support for both heuristic and LLM-based decision making.
 
-Action schema:
+## Technical Design
 
-```json
-{
-  "mode": "step | target | signal",
-  "scale_delta": -2,
-  "target_utilization": 0.6,
-  "signal_type": "INSUFFICIENT_CAPACITY"
-}
-```
+### 1. Workload Modeling
 
-Control modes:
+We built three workload profiles to stress different behaviors:
 
-- `step`: scale by integer delta (`-2` to `+2`).
-- `target`: provide utilization target and let environment compute scaling.
-- `signal`: emit `INSUFFICIENT_CAPACITY` when saturated.
+- smooth: periodic demand where trend-following policies should perform well.
+- fluctuating: noisy traffic where robust controllers must avoid overreaction.
+- spiky: burst-heavy traffic where capacity saturation handling becomes critical.
 
-Reward combines throughput, SLO pressure, cost, queue pressure, stability, invalid-action penalty, and signal bonus.
+Each task is seed-controlled to keep experiments reproducible.
 
-## Task Levels
+### 2. Capacity Dynamics
 
-| Task | Profile | Steps | Max Servers |
-|---|---|---:|---:|
-| easy | smooth | 50 | 10 |
-| medium | fluctuating | 75 | 12 |
-| hard | spiky | 100 | 15 |
+The server pool is modeled with production-like constraints:
 
-## Quick Start
+- startup delay: new servers are not immediately active.
+- scaling cooldown: consecutive scaling operations are rate-limited.
+- hard capacity bounds: minimum and maximum server limits are enforced.
 
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-uvicorn server.main:app --reload --port 7860
-```
+This prevents unrealistic instant scaling and creates a meaningful control challenge.
 
-Health check:
+### 3. Queue and Latency Modeling
 
-```bash
-curl http://localhost:7860/health
-```
+The environment computes arrivals, service capacity, and queue transitions at each step. Queue overflow is capped and dropped. Latency is estimated with an M/M/c queueing approximation, which captures nonlinear latency escalation near high utilization.
 
-## API
+### 4. Decision Interface
 
-- `POST /reset?task=easy|medium|hard`
-- `POST /step?session_id=<uuid>`
-- `GET /state?session_id=<uuid>`
-- `GET /health`
+The control interface supports three action modes:
 
-Example:
+- step mode for direct scale-up or scale-down deltas.
+- target mode for utilization-driven scaling intent.
+- signal mode for explicit insufficient-capacity signaling at saturation.
 
-```bash
-curl -X POST "http://localhost:7860/reset?task=easy"
-curl -X POST "http://localhost:7860/step?session_id=<uuid>" \
-  -H "Content-Type: application/json" \
-  -d '{"mode":"step","scale_delta":1}'
-```
+State observations include active capacity, demand, queue depth, latency, utilization, and normalization terms that simplify policy learning.
 
-## Run Inference
+### 5. Reward Engineering
 
-Heuristic baseline:
+Reward is intentionally multi-objective and includes:
 
-```bash
-POLICY_MODE=heuristic ENV_URL=http://localhost:7860 python inference.py
-```
+- throughput encouragement
+- SLO violation penalty
+- over-provisioning cost penalty
+- queue penalty
+- stability penalty for abrupt scaling
+- invalid-action penalty (for cooldown and boundary violations)
+- correctness bonus for valid insufficient-capacity signaling
 
-LLM policy:
+The final step reward is clipped to stabilize downstream learning.
 
-```bash
-HF_TOKEN=<token> POLICY_MODE=llm ENV_URL=http://localhost:7860 python inference.py
-```
+## Scenario Matrix
 
-Analysis runner:
+| Task | Episode Length | Capacity Ceiling | Main Evaluation Focus |
+|---|---:|---:|---|
+| easy | 50 | 10 | Basic tracking of predictable demand |
+| medium | 75 | 12 | Noise tolerance and anti-thrashing behavior |
+| hard | 100 | 15 | Burst handling, saturation response, and resilience |
 
-```bash
-python run_inference.py --local --task easy --max-steps 12
-```
+## Implementation Outcomes
 
-## Validation
+- Completed OpenEnv interaction contract for reset, step, state, and health endpoints.
+- Added UUID-based session management to support parallel evaluation safely.
+- Integrated strict action validation with error-aware reward shaping.
+- Implemented deterministic task configuration for reproducible judging.
+- Added inference and analysis workflow support for policy assessment.
+- Added tests that verify core environment validity for valid and invalid actions.
 
-```bash
-pytest -q
-openenv validate
-bash pre_validation_script.sh <hf-space-url> .
-```
+## Why This Is Hackathon-Ready
 
-## Project Structure
-
-- `env/`: simulation, reward, task config, models
-- `server/main.py`: OpenEnv API server
-- `openenv.yaml`: OpenEnv metadata
-- `inference.py`: submission-format inference script
-- `run_inference.py`: run and analyze episodes
-- `tests/test_environment.py`: behavior tests
+- Demonstrates full-stack problem ownership: simulation, API surface, policy integration, and evaluation.
+- Balances practical engineering with algorithmic rigor.
+- Produces measurable outputs that judges can compare across policies and tasks.
+- Provides a clear path from benchmark environment to real autoscaling controller research.
