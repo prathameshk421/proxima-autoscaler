@@ -1,14 +1,3 @@
----
-title: Proxima Autoscalar
-sdk: docker
-app_port: 7860
-tags:
-  - openenv
-  - cloud
-  - autoscaling
-  - reinforcement-learning
----
-
 # Proxima Autoscalar
 
 Proxima Autoscalar is our hackathon system for intelligent cloud capacity control. It simulates realistic autoscaling constraints and evaluates how well an RL or LLM policy can balance latency, queue pressure, and infrastructure cost.
@@ -88,18 +77,3 @@ The final step reward is clipped to stabilize downstream learning.
 | medium | 75 | 12 | Noise tolerance and anti-thrashing behavior |
 | hard | 100 | 15 | Burst handling, saturation response, and resilience |
 
-## Implementation Outcomes
-
-- Completed OpenEnv interaction contract for reset, step, state, and health endpoints.
-- Added UUID-based session management to support parallel evaluation safely.
-- Integrated strict action validation with error-aware reward shaping.
-- Implemented deterministic task configuration for reproducible judging.
-- Added inference and analysis workflow support for policy assessment.
-- Added tests that verify core environment validity for valid and invalid actions.
-
-## Why This Is Hackathon-Ready
-
-- Demonstrates full-stack problem ownership: simulation, API surface, policy integration, and evaluation.
-- Balances practical engineering with algorithmic rigor.
-- Produces measurable outputs that judges can compare across policies and tasks.
-- Provides a clear path from benchmark environment to real autoscaling controller research.
